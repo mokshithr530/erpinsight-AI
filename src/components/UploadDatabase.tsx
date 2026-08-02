@@ -22,6 +22,11 @@ export default function UploadDatabase({
   const [selectedDatabase, setSelectedDatabase] = useState("");
   const [loadingDatabases, setLoadingDatabases] = useState(false);
 
+  const openFilePicker = () => {
+    setError(null);
+    inputRef.current?.click();
+  };
+
   const handleUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -96,12 +101,14 @@ export default function UploadDatabase({
     <>
       <div className="relative">
         <button
+          type="button"
           onClick={() => {
             setOpen((value) => !value);
             if (!open && mode === "connect") void loadDatabases();
           }}
           disabled={uploading}
-          title="Upload database"
+          aria-label="Choose database source"
+          title="Choose database source"
           className="
             h-11
             w-11
@@ -129,49 +136,64 @@ export default function UploadDatabase({
               bottom-13
               left-0
               z-20
-              w-72
+              w-64
               rounded-lg
               border
               border-gray-200
               bg-white
-              px-3
-              py-3
+              px-2
+              py-2
               text-xs
               text-gray-700
               shadow-lg
             "
           >
-            <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1">
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1">
               <button
                 type="button"
-                onClick={() => setMode("upload")}
-                className={`rounded-md px-2 py-1.5 ${mode === "upload" ? "bg-white shadow-sm" : ""}`}
+                aria-label="Upload SQL dump"
+                onClick={() => {
+                  setMode("upload");
+                  openFilePicker();
+                }}
+                disabled={uploading}
+                className={`rounded-md px-2 py-1.5 text-xs font-medium ${mode === "upload" ? "bg-white shadow-sm" : ""}`}
               >
                 Upload SQL Dump
               </button>
               <button
                 type="button"
+                aria-label="Connect existing database"
                 onClick={() => {
                   setMode("connect");
                   void loadDatabases();
                 }}
-                className={`rounded-md px-2 py-1.5 ${mode === "connect" ? "bg-white shadow-sm" : ""}`}
+                disabled={uploading}
+                className={`rounded-md px-2 py-1.5 text-xs font-medium ${mode === "connect" ? "bg-white shadow-sm" : ""}`}
               >
                 Connect Existing
               </button>
             </div>
 
             {mode === "upload" ? (
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                disabled={uploading}
-                className="w-full rounded-lg bg-gray-950 px-3 py-2 text-sm text-white disabled:opacity-60"
-              >
-                Choose file
-              </button>
+              <p className="mt-2 px-1 text-[11px] leading-4 text-gray-500">
+                Supports .sql, .db, .sqlite, and .sqlite3 files.
+              </p>
             ) : (
-              <div className="space-y-2">
+              <div className="mt-2 space-y-2">
+                {loadingDatabases && (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                    Loading databases...
+                  </div>
+                )}
+
+                {!loadingDatabases && databases.length === 0 && !error && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 leading-5 text-amber-800">
+                    No MySQL databases found.
+                  </div>
+                )}
+
+                {databases.length > 0 && (
                 <select
                   value={selectedDatabase}
                   onChange={(event) => setSelectedDatabase(event.target.value)}
@@ -184,14 +206,26 @@ export default function UploadDatabase({
                     </option>
                   ))}
                 </select>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={loadDatabases}
+                    disabled={loadingDatabases || uploading}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 disabled:opacity-60"
+                  >
+                    Refresh
+                  </button>
                 <button
                   type="button"
                   onClick={connectDatabase}
                   disabled={!selectedDatabase || uploading || loadingDatabases}
-                  className="w-full rounded-lg bg-gray-950 px-3 py-2 text-sm text-white disabled:opacity-60"
+                    className="rounded-lg bg-gray-950 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
                 >
-                  {loadingDatabases ? "Loading..." : "Connect"}
+                    Connect
                 </button>
+                </div>
               </div>
             )}
 
@@ -206,10 +240,11 @@ export default function UploadDatabase({
 
       <input
         ref={inputRef}
-        hidden
         type="file"
         accept=".db,.sqlite,.sqlite3,.sql"
         onChange={handleUpload}
+        className="sr-only"
+        tabIndex={-1}
       />
 
       {uploading && (

@@ -24,6 +24,12 @@ from schema_reader import SchemaReader
 from session_memory import session_memory
 from chat_pipeline import chat_pipeline
 from metrics import token_metrics
+from clarification_context import (
+    clear_clarification_context,
+    consume_unrelated_turn,
+    get_clarification_context,
+    save_clarification_context,
+)
 from active_database import (
     clear_session_database_path,
     get_session_database_path,
@@ -90,6 +96,13 @@ def _remove_file_safely(file_path: str | None):
         os.remove(file_path)
 
 
+def _warm_mysql_memory(database: str):
+    try:
+        mysql_adapter.database_memory(database)
+    except Exception as error:
+        logging.warning("MySQL database memory warmup failed: %s", error)
+
+
 os.makedirs(
     UPLOAD_FOLDER,
     exist_ok=True
@@ -99,6 +112,7 @@ os.makedirs(
 def _present_chat_response(response: dict):
     public = dict(response)
     public.pop("metrics", None)
+    public.pop("clarification_context", None)
     if "confidence" not in public:
         public["confidence"] = {
             "confidence_score": 60 if public.get("success") else 35,
@@ -109,6 +123,24 @@ def _present_chat_response(response: dict):
             "limitations": [] if public.get("success") else ["The request did not complete successfully."],
         }
     return public
+
+
+def _finalize_clarification_state(
+    session_id: str,
+    original_question: str,
+    response: dict,
+    filled_slots: dict | None = None,
+):
+    if response.get("sql") or response.get("result"):
+        clear_clarification_context(session_id)
+        return
+    context = chat_pipeline.build_clarification_context(original_question, response)
+    if context:
+        if filled_slots:
+            merged_filled = dict(context.get("filled_slots") or {})
+            merged_filled.update(filled_slots)
+            context["filled_slots"] = merged_filled
+        save_clarification_context(session_id, context)
 
 
 @app.get("/")
@@ -188,22 +220,28 @@ async def upload_database(
                 file.filename,
                 session_id,
             )
+            schema = mysql_adapter.inspect_schema(import_state["database"])
+            table_count = len(schema)
+            column_count = sum(len(info["columns"]) for info in schema.values())
             save_session_mysql_connection(
                 session_id,
                 import_state["connection_id"],
                 import_state["database"],
                 file.filename,
                 import_state.get("schema_fingerprint"),
+                table_count,
+                column_count,
             )
+            clear_clarification_context(session_id)
             session_memory.reset()
-            schema = mysql_adapter.inspect_schema(import_state["database"])
+            _warm_mysql_memory(import_state["database"])
             return {
                 "success": True,
                 "database": {
                     "name": file.filename,
                     "type": "MYSQL",
-                    "tables": len(schema),
-                    "columns": sum(len(info["columns"]) for info in schema.values()),
+                    "tables": table_count,
+                    "columns": column_count,
                     "connection_id": import_state["connection_id"],
                     "already_imported": import_state.get("already_imported", False),
                     "source_type": "mysql",
@@ -224,6 +262,7 @@ async def upload_database(
                 import_state.get("schema_fingerprint"),
                 import_state.get("imported_tables", []),
             )
+            clear_clarification_context(session_id)
             session_memory.reset()
             return {
                 "success": True,
@@ -264,6 +303,7 @@ async def upload_database(
             active_database_path,
             file.filename,
         )
+        clear_clarification_context(session_id)
 
         # ---------------------------------
         # Store Session
@@ -349,13 +389,38 @@ async def chat(request: ChatRequest):
                     session_source.get("schema_fingerprint", ""),
                 ]
             )
-            return _present_chat_response(
-                chat_pipeline.ask_mysql(
-                    request.question,
-                    session_source["database"],
-                    identity,
+            effective_question = request.question
+            pending_context = get_clarification_context(request.session_id)
+            filled_slots = {}
+            original_clarification_question = request.question
+            if pending_context:
+                original_clarification_question = (
+                    pending_context.get("original_question") or request.question
                 )
+                merge = chat_pipeline.merge_clarification_followup(
+                    request.question,
+                    pending_context,
+                )
+                if merge["unrelated"]:
+                    clear_clarification_context(request.session_id)
+                elif merge["handled"]:
+                    effective_question = merge["question"]
+                    filled_slots = merge.get("filled_slots") or {}
+                else:
+                    consume_unrelated_turn(request.session_id, pending_context)
+
+            response = chat_pipeline.ask_mysql(
+                effective_question,
+                session_source["database"],
+                identity,
             )
+            _finalize_clarification_state(
+                request.session_id,
+                original_clarification_question if pending_context else effective_question,
+                response,
+                filled_slots,
+            )
+            return _present_chat_response(response)
 
         database_path = get_session_database_path(request.session_id)
         if not database_path or not Path(database_path).is_file():
@@ -422,6 +487,8 @@ async def status(session_id: str | None = None):
                 if sqlserver_connected or mysql_connected
                 else None
             ),
+            "tables": session_source.get("tables") if session_source else None,
+            "columns": session_source.get("columns") if session_source else None,
         },
         "schema_loaded": bool(database_path) or sqlserver_connected or mysql_connected,
         "supported_uploads": SUPPORTED_DATABASE_NOTES,
@@ -436,6 +503,7 @@ async def status(session_id: str | None = None):
 @app.post("/clear")
 async def clear(request: SessionRequest):
     clear_session_database_path(request.session_id)
+    clear_clarification_context(request.session_id)
     session_memory.reset()
     db_manager.disconnect()
 
@@ -499,22 +567,28 @@ async def inspect_mysql_schema(database: str):
 async def attach_mysql_database(request: MySQLAttachRequest):
     try:
         state = mysql_adapter.attach_database(request.database)
+        schema = mysql_adapter.inspect_schema(state["database"])
+        table_count = len(schema)
+        column_count = sum(len(info["columns"]) for info in schema.values())
         save_session_mysql_connection(
             request.session_id,
             state["connection_id"],
             state["database"],
             state.get("name"),
             state.get("schema_fingerprint"),
+            table_count,
+            column_count,
         )
+        clear_clarification_context(request.session_id)
         session_memory.reset()
-        schema = mysql_adapter.inspect_schema(state["database"])
+        _warm_mysql_memory(state["database"])
         return {
             "success": True,
             "database": {
                 "name": state["database"],
                 "type": "MYSQL",
-                "tables": len(schema),
-                "columns": sum(len(info["columns"]) for info in schema.values()),
+                "tables": table_count,
+                "columns": column_count,
                 "connection_id": state["connection_id"],
                 "already_imported": True,
                 "source_type": "mysql",

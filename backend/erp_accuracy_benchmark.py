@@ -1,0 +1,1828 @@
+from dataclasses import asdict, dataclass, field
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from erp_benchmark_ground_truth import apply_ground_truth
+
+ERP_BENCHMARK_VERSION = "erp-accuracy-benchmark:v2"
+FROZEN_BENCHMARK_FILE = (
+    Path(__file__).resolve().parent
+    / "benchmarks"
+    / "erp_management_benchmark_v2.json"
+)
+
+
+@dataclass(frozen=True)
+class BenchmarkItem:
+    id: str
+    split: str
+    question: str
+    category: str
+    module: str
+    complexity: str
+    answerable: bool
+    expected_intent: str
+    expected_entities: list[str]
+    expected_tables: list[str]
+    expected_columns: list[str]
+    expected_joins: list[dict[str, Any]]
+    expected_filters: list[dict[str, Any]]
+    expected_aggregation: str | None
+    expected_ordering: dict[str, Any] | None
+    reference_sql: str | None
+    expected_result: dict[str, Any]
+    expected_clarification: str | None = None
+    safe_failure: str | None = None
+    expected_interpretation: dict[str, Any] = field(default_factory=dict)
+    verified_query_plan: dict[str, Any] = field(default_factory=dict)
+    expected_answer: dict[str, Any] = field(default_factory=dict)
+    ground_truth_status: str = "unreviewed"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["version"] = ERP_BENCHMARK_VERSION
+        return payload
+
+
+def _join(left_table, left_column, right_table, right_column, confidence="inferred") -> dict[str, Any]:
+    return {
+        "left_table": left_table,
+        "left_column": left_column,
+        "right_table": right_table,
+        "right_column": right_column,
+        "confidence": confidence,
+    }
+
+
+def _case(
+    *,
+    suffix: str,
+    question: str,
+    category: str,
+    module: str,
+    complexity: str,
+    answerable: bool,
+    expected_intent: str,
+    expected_tables: list[str],
+    expected_columns: list[str],
+    expected_aggregation: str | None = None,
+    expected_ordering: dict[str, Any] | None = None,
+    expected_filters: list[dict[str, Any]] | None = None,
+    expected_entities: list[str] | None = None,
+    expected_joins: list[dict[str, Any]] | None = None,
+    reference_sql: str | None = None,
+    expected_result: dict[str, Any] | None = None,
+    expected_clarification: str | None = None,
+    safe_failure: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "suffix": suffix,
+        "question": question,
+        "category": category,
+        "module": module,
+        "complexity": complexity,
+        "answerable": answerable,
+        "expected_intent": expected_intent,
+        "expected_entities": expected_entities or [],
+        "expected_tables": expected_tables,
+        "expected_columns": expected_columns,
+        "expected_joins": expected_joins or [],
+        "expected_filters": expected_filters or [],
+        "expected_aggregation": expected_aggregation,
+        "expected_ordering": expected_ordering,
+        "reference_sql": reference_sql,
+        "expected_result": expected_result or {"type": "property_check", "properties": ["safe_select_only"]},
+        "expected_clarification": expected_clarification,
+        "safe_failure": safe_failure,
+    }
+
+
+PROJECT = {
+    "table": "project_mst",
+    "pk": "project_id",
+    "name": "project_name",
+    "columns": ["project_id", "project_name", "project_value", "client_name", "project_state", "status", "project_start_date", "project_end_date"],
+}
+BILLING = {
+    "table": "client_bill_raising",
+    "pk": "billing_id",
+    "columns": ["billing_id", "project_id", "ra_bill_number", "bill_date", "bill_amount", "gross_bill_value", "billing_status", "total_amount"],
+}
+BILLING_DETAIL = {
+    "table": "client_bills_boq_wisedetails",
+    "pk": "client_bills_boq_wisedetails_id",
+    "columns": ["client_bills_boq_wisedetails_id", "billing_id", "boq_total_amount", "boq_rasing_amount", "raising_qty", "client_unit_rate", "uom"],
+}
+BOQ = {
+    "table": "boq_unit_bill_raising",
+    "pk": "boq_unit_bill_raising_id",
+    "columns": ["boq_unit_bill_raising_id", "billingraise_id", "subcontract_workorder_id", "bill_qty", "paid_billing_amount", "previous_bill_amount"],
+}
+PO = {
+    "table": "po_form",
+    "pk": "po_form_id",
+    "columns": ["po_form_id", "po_no", "date", "project", "po_id", "pf_project_id", "vendor_name", "sub_total", "total_value", "po_validity_date"],
+}
+PO_ITEM = {
+    "table": "po_items",
+    "pk": "po_item_id",
+    "columns": ["po_item_id", "po_id", "material_id", "sub_material_id", "qty", "total_price", "status", "item_unit_price", "po_project_id"],
+}
+PO_PRICE = {
+    "table": "po_final_price",
+    "pk": "po_final_price_id",
+    "columns": ["po_final_price_id", "po_id", "material_id", "sub_material_id", "price", "qty", "total_price", "status"],
+}
+GRN = {
+    "table": "goods_receipt_cum_insp_note",
+    "pk": "grcin_id",
+    "columns": ["grcin_id", "sub_store_po_items_id", "qty_actual_received", "grn_po_id", "grn_sub_material_id", "grn_project_id", "invoice_no", "invoice_date", "value", "grn_date", "shortage", "damage", "base_price"],
+}
+GRN_MASTER = {
+    "table": "grn_master",
+    "pk": "grn_master_id",
+    "columns": ["grn_master_id", "grn_po_id", "project_id", "store_id", "grn_date", "status"],
+}
+MATERIAL = {
+    "table": "sub_material",
+    "pk": "sub_material_id",
+    "name": "sub_material_name",
+    "columns": ["sub_material_id", "material_id", "sub_material_name", "uom", "hsn_code", "submaterialcode", "item_code"],
+}
+STORE_USAGE = {
+    "table": "store_usage_quantity_master",
+    "pk": "store_usage_quantity_master_id",
+    "columns": ["store_usage_quantity_master_id", "project_id", "store_id", "issued_date", "created_date", "transactiontype", "verification_status", "cancel_status", "actual_issued_date"],
+}
+STORE_USAGE_DETAIL = {
+    "table": "store_material_usage_quantity",
+    "pk": "store_material_usage_quantity_id",
+    "columns": ["store_material_usage_quantity_id", "store_usage_quantity_master_id", "sub_material_id", "requested_quantity", "issued_quantity", "left_quantity", "base_charge", "transactiontype"],
+}
+INVENTORY = {
+    "table": "inventory_master_transaction",
+    "pk": "inventory_master_transaction_id",
+    "columns": ["inventory_master_transaction_id", "inventory_master_id", "material_id", "sub_material_id", "quantity", "issued_to", "is_it_inward", "trans_date", "created_date", "grcin_id"],
+}
+INVENTORY_MASTER = {
+    "table": "inventory_master",
+    "pk": "inventory_master_id",
+    "columns": ["inventory_master_id", "sub_store_id", "material_id", "sub_material_id", "total_quanity", "available_quantity", "status", "grcin_id"],
+}
+EMPLOYEE = {
+    "table": "employee_table",
+    "pk": "employee_id",
+    "name": "emp_name",
+    "columns": ["employee_id", "emp_ref_id", "emp_name", "department_id", "designation_id", "emp_status", "project_id", "date_of_joining", "sal_ctc"],
+}
+DEPARTMENT = {
+    "table": "department",
+    "pk": "department_id",
+    "name": "department_name",
+    "columns": ["department_id", "department_name", "division_id", "description"],
+}
+ATTENDANCE = {
+    "table": "emp_attendance_register",
+    "pk": "emp_attendance_register_id",
+    "columns": ["emp_attendance_register_id", "project_id", "project_sites_id", "employee_id", "date", "attendance_type_id", "attendence_type_name", "approval_status", "in_time", "out_time"],
+}
+PUNCH = {
+    "table": "employee_attendance_punching_time",
+    "pk": "employee_attendance_punching_time_id",
+    "columns": ["employee_attendance_punching_time_id", "emp_attendance_register_id", "in_time", "out_time", "punch_in_date", "punch_out_date"],
+}
+WORKORDER = {
+    "table": "subcontract_workorder_details",
+    "pk": "subcontract_workorder_details_id",
+    "columns": ["subcontract_workorder_details_id", "project_id", "sub_contract_id", "date_of_Commencement", "date_Of_Completion", "after_taxes_grandtotal", "work_order_status", "workorder_no", "payment_status"],
+}
+WORKORDER_DETAIL = {
+    "table": "subcontract_workorder",
+    "pk": "subcontract_workorder_id",
+    "columns": ["subcontract_workorder_id", "subcontract_workorder_details_id", "quantity", "unit_rate", "grand_total", "billing_amount", "billing_quantity"],
+}
+VENDOR_BRANCH = {
+    "table": "vendor_branch_details",
+    "pk": "vendor_branch_details_id",
+    "columns": ["vendor_branch_details_id", "vendor_id", "gst_no", "contact_person", "contact_number", "state", "gst_type"],
+}
+VENDOR_MASTER = {
+    "table": "vendor_mst",
+    "pk": "vendor_id",
+    "name": "vendor_name",
+    "columns": ["vendor_id", "vendor_code", "vendor_name", "vendor_address", "email", "contact_no", "contact_person_name", "vendor_gst_no", "vendor_types_id"],
+}
+VENDOR_TYPE = {
+    "table": "vendor_types",
+    "pk": "vendor_types_id",
+    "name": "vendor_type",
+    "columns": ["vendor_types_id", "vendor_type", "vendor_description"],
+}
+VENDOR_MATERIAL = {
+    "table": "vendor_material_details",
+    "pk": "vendor_material_id",
+    "columns": ["vendor_material_id", "vendor_id", "material_id", "sub_material_id", "mtr_status"],
+}
+
+
+BASE_CASES = [
+    _case(
+        suffix="project-count",
+        question="How many projects are listed in the ERP?",
+        category="counts",
+        module="projects",
+        complexity="easy",
+        answerable=True,
+        expected_intent="count",
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["project_id"],
+        expected_aggregation="count",
+        reference_sql="SELECT COUNT(*) AS project_count FROM project_mst",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="project-top-value",
+        question="Show the top 5 projects by project value.",
+        category="top_bottom_n",
+        module="projects",
+        complexity="easy",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["project_name", "project_value"],
+        expected_aggregation=None,
+        expected_ordering={"column": "project_value", "direction": "desc", "limit": 5},
+        reference_sql="SELECT project_id, project_name, project_value FROM project_mst ORDER BY CAST(project_value AS DECIMAL(18,2)) DESC LIMIT 5",
+        expected_result={"type": "rows", "max_rows": 5, "required_columns": ["project_name", "project_value"]},
+    ),
+    _case(
+        suffix="project-by-state",
+        question="How many projects are there by state?",
+        category="grouping",
+        module="projects",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["project_state", "project_id"],
+        expected_aggregation="count",
+        expected_ordering={"column": "project_count", "direction": "desc", "limit": None},
+        reference_sql="SELECT project_state, COUNT(*) AS project_count FROM project_mst GROUP BY project_state ORDER BY project_count DESC",
+        expected_result={"type": "grouped_rows", "required_columns": ["project_state", "project_count"]},
+    ),
+    _case(
+        suffix="project-specific-details",
+        question="Give me details for RDSS-VIZAG project.",
+        category="entity_specific_filters",
+        module="projects",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["RDSS-VIZAG"],
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["project_name", "project_value", "client_name", "project_start_date", "project_end_date"],
+        expected_filters=[{"column": "project_name", "operator": "matches", "value": "RDSS-VIZAG"}],
+        reference_sql="SELECT project_id, project_name, client_name, project_value, project_start_date, project_end_date, status FROM project_mst WHERE project_name LIKE '%RDSS-VIZAG%' LIMIT 10",
+        expected_result={"type": "rows", "required_columns": ["project_name"]},
+    ),
+    _case(
+        suffix="billing-total",
+        question="What is the total gross billing value?",
+        category="totals",
+        module="billing",
+        complexity="easy",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_tables=[BILLING["table"]],
+        expected_columns=["gross_bill_value"],
+        expected_aggregation="sum",
+        reference_sql="SELECT SUM(gross_bill_value) AS total_gross_billing FROM client_bill_raising",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="billing-by-project",
+        question="Compare billing across projects and show the top 10.",
+        category="cross_module_questions",
+        module="billing",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[BILLING["table"], PROJECT["table"]],
+        expected_columns=["project_id", "project_name", "gross_bill_value"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "gross_bill_value", "direction": "desc", "limit": 10},
+        reference_sql="SELECT p.project_name, SUM(c.gross_bill_value) AS gross_bill_value FROM client_bill_raising c JOIN project_mst p ON p.project_id = c.project_id GROUP BY p.project_id, p.project_name ORDER BY gross_bill_value DESC LIMIT 10",
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "gross_bill_value"]},
+    ),
+    _case(
+        suffix="billing-calendar-year",
+        question="Show total bill amount by month for 2025.",
+        category="calendar_years",
+        module="billing",
+        complexity="hard",
+        answerable=True,
+        expected_intent="trend",
+        expected_tables=[BILLING["table"]],
+        expected_columns=["bill_date", "bill_amount"],
+        expected_filters=[{"column": "bill_date", "operator": "year", "value": 2025}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "bill_month", "direction": "asc", "limit": None},
+        reference_sql="SELECT DATE_FORMAT(STR_TO_DATE(NULLIF(bill_date,''), '%d-%m-%Y'), '%Y-%m') AS bill_month, SUM(bill_amount) AS bill_amount FROM client_bill_raising WHERE YEAR(STR_TO_DATE(NULLIF(bill_date,''), '%d-%m-%Y')) = 2025 GROUP BY bill_month ORDER BY bill_month",
+        expected_result={"type": "time_series", "date_grain": "month"},
+    ),
+    _case(
+        suffix="client-top-billing",
+        question="Show the top 10 clients by billing value.",
+        category="top_bottom_n",
+        module="clients",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[BILLING["table"], PROJECT["table"]],
+        expected_columns=["client_name", "gross_bill_value"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "gross_bill_value", "direction": "desc", "limit": 10},
+        reference_sql="SELECT p.client_name, SUM(c.gross_bill_value) AS gross_bill_value FROM client_bill_raising c JOIN project_mst p ON p.project_id = c.project_id GROUP BY p.client_name ORDER BY gross_bill_value DESC LIMIT 10",
+        expected_result={"type": "grouped_rows", "required_columns": ["client_name", "gross_bill_value"]},
+    ),
+    _case(
+        suffix="po-count",
+        question="How many purchase orders are available?",
+        category="counts",
+        module="procurement",
+        complexity="easy",
+        answerable=True,
+        expected_intent="count",
+        expected_tables=[PO["table"]],
+        expected_columns=["po_form_id"],
+        expected_aggregation="count",
+        reference_sql="SELECT COUNT(*) AS purchase_order_count FROM po_form",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="po-top-value",
+        question="List the top 10 purchase orders by total value.",
+        category="top_bottom_n",
+        module="purchase_orders",
+        complexity="easy",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["po_no", "total_value", "vendor_name", "date"],
+        expected_ordering={"column": "total_value", "direction": "desc", "limit": 10},
+        reference_sql="SELECT po_no, vendor_name, total_value, date FROM po_form ORDER BY total_value DESC LIMIT 10",
+        expected_result={"type": "rows", "max_rows": 10, "required_columns": ["po_no", "total_value"]},
+    ),
+    _case(
+        suffix="vendor-po-value",
+        question="Which vendor has the highest purchase value?",
+        category="top_bottom_n",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "total_value"],
+        expected_aggregation="sum",
+        expected_ordering={"column": "total_value", "direction": "desc", "limit": 1},
+        reference_sql="SELECT vendor_name, SUM(total_value) AS purchase_value FROM po_form WHERE vendor_name IS NOT NULL AND TRIM(vendor_name) <> '' GROUP BY vendor_name ORDER BY purchase_value DESC LIMIT 1",
+        expected_result={"type": "rows", "max_rows": 1, "required_columns": ["vendor_name", "purchase_value"]},
+    ),
+    _case(
+        suffix="grn-total-value",
+        question="What is the total GRN value?",
+        category="totals",
+        module="grn",
+        complexity="easy",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_tables=[GRN["table"]],
+        expected_columns=["value"],
+        expected_aggregation="sum",
+        reference_sql="SELECT SUM(value) AS total_grn_value FROM goods_receipt_cum_insp_note",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="grn-shortage",
+        question="Show materials with the highest shortage in GRN.",
+        category="top_bottom_n",
+        module="grn",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[GRN["table"], MATERIAL["table"]],
+        expected_columns=["grn_sub_material_id", "sub_material_name", "shortage"],
+        expected_joins=[_join("goods_receipt_cum_insp_note", "grn_sub_material_id", "sub_material", "sub_material_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "shortage", "direction": "desc", "limit": 10},
+        reference_sql="SELECT sm.sub_material_name, SUM(g.shortage) AS shortage FROM goods_receipt_cum_insp_note g LEFT JOIN sub_material sm ON sm.sub_material_id = g.grn_sub_material_id GROUP BY sm.sub_material_name ORDER BY shortage DESC LIMIT 10",
+        expected_result={"type": "grouped_rows", "required_columns": ["sub_material_name", "shortage"]},
+    ),
+    _case(
+        suffix="material-issued-last-30",
+        question="For the last 30 days, how much material was issued by project?",
+        category="date_ranges",
+        module="stores",
+        complexity="hard",
+        answerable=True,
+        expected_intent="trend",
+        expected_tables=[STORE_USAGE["table"], STORE_USAGE_DETAIL["table"], PROJECT["table"]],
+        expected_columns=["issued_date", "project_id", "project_name", "issued_quantity"],
+        expected_joins=[
+            _join("store_material_usage_quantity", "store_usage_quantity_master_id", "store_usage_quantity_master", "store_usage_quantity_master_id"),
+            _join("store_usage_quantity_master", "project_id", "project_mst", "project_id"),
+        ],
+        expected_filters=[{"column": "issued_date", "operator": "last_days", "value": 30}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "issued_quantity", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "issued_quantity"]},
+    ),
+    _case(
+        suffix="material-by-name",
+        question="Show the top materials issued for RDSS-VIZAG.",
+        category="entity_specific_filters",
+        module="materials",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_entities=["RDSS-VIZAG"],
+        expected_tables=[STORE_USAGE["table"], STORE_USAGE_DETAIL["table"], MATERIAL["table"], PROJECT["table"]],
+        expected_columns=["project_name", "sub_material_name", "issued_quantity", "base_charge"],
+        expected_joins=[
+            _join("store_usage_quantity_master", "project_id", "project_mst", "project_id"),
+            _join("store_material_usage_quantity", "store_usage_quantity_master_id", "store_usage_quantity_master", "store_usage_quantity_master_id"),
+            _join("store_material_usage_quantity", "sub_material_id", "sub_material", "sub_material_id"),
+        ],
+        expected_filters=[{"column": "project_name", "operator": "matches", "value": "RDSS-VIZAG"}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "issued_quantity", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "sub_material_name", "issued_quantity"]},
+    ),
+    _case(
+        suffix="department-headcount",
+        question="Show employee count by department.",
+        category="grouping",
+        module="departments",
+        complexity="medium",
+        answerable=True,
+        expected_intent="count",
+        expected_tables=[EMPLOYEE["table"], DEPARTMENT["table"]],
+        expected_columns=["employee_id", "department_id", "department_name"],
+        expected_joins=[_join("employee_table", "department_id", "department", "department_id")],
+        expected_aggregation="count",
+        expected_ordering={"column": "employee_count", "direction": "desc", "limit": None},
+        reference_sql="SELECT d.department_name, COUNT(e.employee_id) AS employee_count FROM department d LEFT JOIN employee_table e ON e.department_id = d.department_id GROUP BY d.department_id, d.department_name ORDER BY employee_count DESC",
+        expected_result={"type": "grouped_rows", "required_columns": ["department_name", "employee_count"]},
+    ),
+    _case(
+        suffix="attendance-by-project",
+        question="How many attendance records exist by project?",
+        category="grouping",
+        module="attendance",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[ATTENDANCE["table"], PROJECT["table"]],
+        expected_columns=["project_id", "project_name", "emp_attendance_register_id"],
+        expected_joins=[_join("emp_attendance_register", "project_id", "project_mst", "project_id")],
+        expected_aggregation="count",
+        expected_ordering={"column": "attendance_records", "direction": "desc", "limit": 10},
+        reference_sql="SELECT p.project_name, COUNT(a.emp_attendance_register_id) AS attendance_records FROM emp_attendance_register a LEFT JOIN project_mst p ON p.project_id = a.project_id GROUP BY p.project_name ORDER BY attendance_records DESC LIMIT 10",
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "attendance_records"]},
+    ),
+    _case(
+        suffix="attendance-employee",
+        question="Show attendance details for employee 1045.",
+        category="entity_specific_filters",
+        module="attendance",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["employee 1045"],
+        expected_tables=[ATTENDANCE["table"], EMPLOYEE["table"]],
+        expected_columns=["employee_id", "emp_name", "date", "attendence_type_name", "in_time", "out_time"],
+        expected_joins=[_join("emp_attendance_register", "employee_id", "employee_table", "employee_id")],
+        expected_filters=[{"column": "employee_id", "operator": "equals", "value": 1045}],
+        reference_sql="SELECT e.employee_id, e.emp_name, a.date, a.attendence_type_name, a.in_time, a.out_time FROM emp_attendance_register a JOIN employee_table e ON e.employee_id = a.employee_id WHERE e.employee_id = 1045 LIMIT 50",
+        expected_result={"type": "rows", "required_columns": ["employee_id", "date"]},
+    ),
+    _case(
+        suffix="workorder-project-value",
+        question="Which project has the highest subcontract workorder value?",
+        category="top_bottom_n",
+        module="projects",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[WORKORDER["table"], PROJECT["table"]],
+        expected_columns=["project_id", "project_name", "after_taxes_grandtotal"],
+        expected_joins=[_join("subcontract_workorder_details", "project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "workorder_value", "direction": "desc", "limit": 10},
+        reference_sql="SELECT p.project_name, SUM(w.after_taxes_grandtotal) AS workorder_value FROM subcontract_workorder_details w JOIN project_mst p ON p.project_id = w.project_id GROUP BY p.project_name ORDER BY workorder_value DESC LIMIT 10",
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "workorder_value"]},
+    ),
+    _case(
+        suffix="profit-loss-missing",
+        question="What is the company profit or loss?",
+        category="unsupported_business_definitions",
+        module="finance",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[],
+        expected_columns=[],
+        expected_aggregation=None,
+        expected_result={"type": "safe_failure"},
+        safe_failure="profit_loss_requires_cost_expense_margin_definitions",
+    ),
+    _case(
+        suffix="ambiguous-performance",
+        question="Which department performs best?",
+        category="ambiguous_questions",
+        module="departments",
+        complexity="hard",
+        answerable=False,
+        expected_intent="business_insight",
+        expected_tables=[DEPARTMENT["table"], EMPLOYEE["table"], ATTENDANCE["table"]],
+        expected_columns=["department_id"],
+        expected_aggregation=None,
+        expected_result={"type": "clarification_or_safe_failure"},
+        expected_clarification="performance_metric_required",
+    ),
+    _case(
+        suffix="zero-result-future",
+        question="Show billing for the year 2099.",
+        category="zero_result_cases",
+        module="billing",
+        complexity="medium",
+        answerable=True,
+        expected_intent="trend",
+        expected_tables=[BILLING["table"]],
+        expected_columns=["bill_date", "gross_bill_value"],
+        expected_filters=[{"column": "bill_date", "operator": "year", "value": 2099}],
+        expected_aggregation="sum",
+        reference_sql="SELECT SUM(gross_bill_value) AS gross_bill_value FROM client_bill_raising WHERE YEAR(STR_TO_DATE(NULLIF(bill_date,''), '%d-%m-%Y')) = 2099",
+        expected_result={"type": "zero_or_null_result"},
+    ),
+]
+
+
+COUNT_SPECS = [
+    ("projects", "projects", PROJECT["table"], "project_id", "project"),
+    ("client-bills", "billing", BILLING["table"], "billing_id", "client bill"),
+    ("boq-bill-lines", "boq", BILLING_DETAIL["table"], "client_bills_boq_wisedetails_id", "BOQ billing line"),
+    ("purchase-orders", "purchase_orders", PO["table"], "po_form_id", "purchase order"),
+    ("purchase-order-items", "procurement", PO_ITEM["table"], "po_item_id", "purchase order item"),
+    ("grn-lines", "grn", GRN["table"], "grcin_id", "GRN line"),
+    ("materials", "materials", MATERIAL["table"], "sub_material_id", "material"),
+    ("material-issues", "stores", STORE_USAGE_DETAIL["table"], "store_material_usage_quantity_id", "material issue line"),
+    ("store-issue-masters", "stores", STORE_USAGE["table"], "store_usage_quantity_master_id", "store issue"),
+    ("inventory-transactions", "inventory", INVENTORY["table"], "inventory_master_transaction_id", "inventory transaction"),
+    ("employees", "employees", EMPLOYEE["table"], "employee_id", "employee"),
+    ("departments", "departments", DEPARTMENT["table"], "department_id", "department"),
+    ("attendance-records", "attendance", ATTENDANCE["table"], "emp_attendance_register_id", "attendance record"),
+    ("punch-records", "timesheets", PUNCH["table"], "employee_attendance_punching_time_id", "punch record"),
+    ("workorders", "procurement", WORKORDER["table"], "subcontract_workorder_details_id", "subcontract workorder"),
+    ("workorder-lines", "procurement", WORKORDER_DETAIL["table"], "subcontract_workorder_id", "subcontract workorder line"),
+    ("vendor-branches", "vendors", VENDOR_BRANCH["table"], "vendor_branch_details_id", "vendor branch"),
+    ("vendor-materials", "vendors", VENDOR_MATERIAL["table"], "vendor_material_id", "vendor material mapping"),
+]
+
+TOTAL_SPECS = [
+    ("project-value", "projects", PROJECT["table"], "project_value", "project value"),
+    ("gross-billing", "billing", BILLING["table"], "gross_bill_value", "gross billing"),
+    ("bill-amount", "billing", BILLING["table"], "bill_amount", "bill amount"),
+    ("boq-total", "boq", BILLING_DETAIL["table"], "boq_total_amount", "BOQ total amount"),
+    ("boq-raising", "boq", BILLING_DETAIL["table"], "boq_rasing_amount", "BOQ raising amount"),
+    ("po-total", "purchase_orders", PO["table"], "total_value", "purchase order total value"),
+    ("po-subtotal", "purchase_orders", PO["table"], "sub_total", "purchase order subtotal"),
+    ("po-item-total", "procurement", PO_ITEM["table"], "total_price", "PO item total price"),
+    ("grn-value", "grn", GRN["table"], "value", "GRN value"),
+    ("grn-shortage", "grn", GRN["table"], "shortage", "GRN shortage"),
+    ("issued-qty", "stores", STORE_USAGE_DETAIL["table"], "issued_quantity", "issued quantity"),
+    ("requested-qty", "stores", STORE_USAGE_DETAIL["table"], "requested_quantity", "requested quantity"),
+    ("inventory-quantity", "inventory", INVENTORY["table"], "quantity", "inventory transaction quantity"),
+    ("inventory-available-quantity", "inventory", INVENTORY_MASTER["table"], "available_quantity", "available inventory quantity"),
+    ("workorder-grand-total", "procurement", WORKORDER_DETAIL["table"], "grand_total", "subcontract grand total"),
+    ("workorder-after-tax", "procurement", WORKORDER["table"], "after_taxes_grandtotal", "workorder after-tax total"),
+    ("employee-ctc", "payroll", EMPLOYEE["table"], "sal_ctc", "employee CTC"),
+]
+
+GROUP_SPECS = [
+    ("projects-by-status", "projects", PROJECT["table"], "status", "project_id", "projects by status"),
+    ("projects-by-client", "clients", PROJECT["table"], "client_name", "project_id", "projects by client"),
+    ("billing-by-status", "billing", BILLING["table"], "billing_status", "billing_id", "bills by status"),
+    ("po-by-vendor", "vendors", PO["table"], "vendor_name", "po_form_id", "purchase orders by vendor"),
+    ("po-items-by-status", "purchase_orders", PO_ITEM["table"], "status", "po_item_id", "PO items by status"),
+    ("grn-by-project", "grn", GRN["table"], "grn_project_id", "grcin_id", "GRN by project"),
+    ("materials-by-uom", "materials", MATERIAL["table"], "uom", "sub_material_id", "materials by UOM"),
+    ("issue-by-type", "stores", STORE_USAGE["table"], "transactiontype", "store_usage_quantity_master_id", "store issues by transaction type"),
+    ("inventory-by-type", "inventory", INVENTORY["table"], "is_it_inward", "inventory_master_transaction_id", "inventory transactions by inward/outward flag"),
+    ("employees-by-status", "employees", EMPLOYEE["table"], "emp_status", "employee_id", "employees by status"),
+    ("employees-by-dept", "departments", EMPLOYEE["table"], "department_id", "employee_id", "employees by department"),
+    ("attendance-by-type", "attendance", ATTENDANCE["table"], "attendence_type_name", "emp_attendance_register_id", "attendance by type"),
+    ("workorders-by-status", "procurement", WORKORDER["table"], "work_order_status", "subcontract_workorder_details_id", "workorders by status"),
+    ("vendors-by-state", "vendors", VENDOR_BRANCH["table"], "state", "vendor_branch_details_id", "vendor branches by state"),
+]
+
+RANKING_SPECS = [
+    ("top-project-value", "projects", PROJECT["table"], "project_name", "project_value", "project value", 5),
+    ("bottom-project-value", "projects", PROJECT["table"], "project_name", "project_value", "project value", 5),
+    ("top-client-billing", "billing", PROJECT["table"], "client_name", "project_value", "client project value", 10),
+    ("top-bills-gross", "billing", BILLING["table"], "ra_bill_number", "gross_bill_value", "gross bill value", 10),
+    ("bottom-bills-gross", "billing", BILLING["table"], "ra_bill_number", "gross_bill_value", "gross bill value", 10),
+    ("top-po-total", "purchase_orders", PO["table"], "po_no", "total_value", "PO total value", 10),
+    ("top-vendor-po", "vendors", PO["table"], "vendor_name", "total_value", "vendor purchase value", 10),
+    ("top-grn-value", "grn", GRN["table"], "invoice_no", "value", "GRN value", 10),
+    ("top-material-issued", "stores", STORE_USAGE_DETAIL["table"], "sub_material_id", "issued_quantity", "issued quantity", 10),
+    ("top-inventory-quantity", "inventory", INVENTORY["table"], "sub_material_id", "quantity", "inventory quantity", 10),
+    ("top-employee-ctc", "payroll", EMPLOYEE["table"], "emp_name", "sal_ctc", "employee CTC", 10),
+    ("top-workorder-value", "procurement", WORKORDER["table"], "workorder_no", "after_taxes_grandtotal", "workorder value", 10),
+]
+
+DATE_SPECS = [
+    ("project-start-2025", "projects", PROJECT["table"], "project_start_date", "project_id", "projects started in 2025", 2025),
+    ("project-end-2026", "projects", PROJECT["table"], "project_end_date", "project_id", "projects ending in 2026", 2026),
+    ("billing-2025", "billing", BILLING["table"], "bill_date", "gross_bill_value", "billing in 2025", 2025),
+    ("po-2025", "purchase_orders", PO["table"], "date", "total_value", "purchase orders in 2025", 2025),
+    ("grn-2025", "grn", GRN["table"], "grn_date", "value", "GRN in 2025", 2025),
+    ("issue-2026", "stores", STORE_USAGE["table"], "issued_date", "store_usage_quantity_master_id", "material issues in 2026", 2026),
+    ("attendance-2026", "attendance", ATTENDANCE["table"], "date", "emp_attendance_register_id", "attendance in 2026", 2026),
+    ("workorder-2025", "procurement", WORKORDER["table"], "date_of_Commencement", "after_taxes_grandtotal", "workorders in 2025", 2025),
+]
+
+CROSS_MODULE_CASES = [
+    _case(
+        suffix="project-billing-vs-value",
+        question="Compare project value and gross billing by project.",
+        category="cross_module_questions",
+        module="projects",
+        complexity="hard",
+        answerable=True,
+        expected_intent="comparison",
+        expected_tables=[PROJECT["table"], BILLING["table"]],
+        expected_columns=["project_name", "project_value", "gross_bill_value"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "gross_bill_value", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows", "required_columns": ["project_name", "project_value", "gross_bill_value"]},
+    ),
+    _case(
+        suffix="project-po-vs-billing",
+        question="Which projects have high purchase value compared with billing?",
+        category="cross_module_questions",
+        module="projects",
+        complexity="hard",
+        answerable=True,
+        expected_intent="business_insight",
+        expected_tables=[PROJECT["table"], PO["table"], BILLING["table"]],
+        expected_columns=["project_id", "project_name", "total_value", "gross_bill_value"],
+        expected_joins=[_join("po_form", "pf_project_id", "project_mst", "project_id"), _join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="material-issue-project-price",
+        question="For any project in the last 30 days, show materials issued with pricing.",
+        category="cross_module_questions",
+        module="stores",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[STORE_USAGE["table"], STORE_USAGE_DETAIL["table"], MATERIAL["table"], PROJECT["table"]],
+        expected_columns=["project_name", "sub_material_name", "issued_quantity", "base_charge"],
+        expected_joins=[_join("store_material_usage_quantity", "store_usage_quantity_master_id", "store_usage_quantity_master", "store_usage_quantity_master_id"), _join("store_usage_quantity_master", "project_id", "project_mst", "project_id"), _join("store_material_usage_quantity", "sub_material_id", "sub_material", "sub_material_id")],
+        expected_filters=[{"column": "issued_date", "operator": "last_days", "value": 30}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "issued_quantity", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="employee-attendance-department",
+        question="Show attendance count by department.",
+        category="cross_module_questions",
+        module="attendance",
+        complexity="hard",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[ATTENDANCE["table"], EMPLOYEE["table"], DEPARTMENT["table"]],
+        expected_columns=["department_name", "employee_id", "emp_attendance_register_id"],
+        expected_joins=[_join("emp_attendance_register", "employee_id", "employee_table", "employee_id"), _join("employee_table", "department_id", "department", "department_id")],
+        expected_aggregation="count",
+        expected_ordering={"column": "attendance_count", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+]
+
+EXTRA_REVIEW_CASES = [
+    _case(
+        suffix="billing-status-year",
+        question="Show approved billing value by project for 2025.",
+        category="multiple_filters",
+        module="billing",
+        complexity="hard",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_tables=[BILLING["table"], PROJECT["table"]],
+        expected_columns=["project_name", "gross_bill_value", "billing_status", "bill_date"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_filters=[{"column": "billing_status", "operator": "status"}, {"column": "bill_date", "operator": "year", "value": 2025}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "gross_bill_value", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="billing-pending-by-client",
+        question="Which clients have the highest pending billing amount?",
+        category="status_filters",
+        module="clients",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[BILLING["table"], PROJECT["table"]],
+        expected_columns=["client_name", "gross_bill_value", "billing_status"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_filters=[{"column": "billing_status", "operator": "status", "value": "pending"}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "gross_bill_value", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="po-validity-expiring",
+        question="Which purchase orders have validity ending in 2026?",
+        category="date_ranges",
+        module="purchase_orders",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_tables=[PO["table"]],
+        expected_columns=["po_no", "po_validity_date", "total_value"],
+        expected_filters=[{"column": "po_validity_date", "operator": "year", "value": 2026}],
+        expected_ordering={"column": "po_validity_date", "direction": "asc", "limit": 20},
+        reference_sql=None,
+        expected_result={"type": "date_filtered_rows"},
+    ),
+    _case(
+        suffix="grn-damage-by-project",
+        question="Show damaged GRN quantity by project.",
+        category="grouping",
+        module="grn",
+        complexity="hard",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_tables=[GRN["table"], PROJECT["table"]],
+        expected_columns=["grn_project_id", "project_name", "damage"],
+        expected_joins=[_join("goods_receipt_cum_insp_note", "grn_project_id", "project_mst", "project_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "damage", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="grn-excess-by-material",
+        question="Which materials have the highest excess received quantity?",
+        category="top_bottom_n",
+        module="grn",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[GRN["table"], MATERIAL["table"]],
+        expected_columns=["grn_sub_material_id", "sub_material_name", "excess"],
+        expected_joins=[_join("goods_receipt_cum_insp_note", "grn_sub_material_id", "sub_material", "sub_material_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "excess", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="store-cancelled-issues",
+        question="How many cancelled material issue slips are there by project?",
+        category="status_filters",
+        module="stores",
+        complexity="hard",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[STORE_USAGE["table"], PROJECT["table"]],
+        expected_columns=["cancel_status", "project_id", "project_name"],
+        expected_joins=[_join("store_usage_quantity_master", "project_id", "project_mst", "project_id")],
+        expected_filters=[{"column": "cancel_status", "operator": "status", "value": "cancelled"}],
+        expected_aggregation="count",
+        expected_ordering={"column": "cancelled_count", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="store-return-materials",
+        question="For the last 30 days how much material was returned for any project?",
+        category="date_ranges",
+        module="stores",
+        complexity="hard",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_tables=[STORE_USAGE["table"], STORE_USAGE_DETAIL["table"], PROJECT["table"]],
+        expected_columns=["issued_date", "transactiontype", "issued_quantity", "project_name"],
+        expected_joins=[_join("store_material_usage_quantity", "store_usage_quantity_master_id", "store_usage_quantity_master", "store_usage_quantity_master_id"), _join("store_usage_quantity_master", "project_id", "project_mst", "project_id")],
+        expected_filters=[{"column": "issued_date", "operator": "last_days", "value": 30}, {"column": "transactiontype", "operator": "status_or_type", "value": "return"}],
+        expected_aggregation="sum",
+        reference_sql=None,
+        expected_result={"type": "grouped_rows_or_zero"},
+    ),
+    _case(
+        suffix="inventory-rate-average",
+        question="Average inventory rate by material.",
+        category="unsupported_business_definitions",
+        module="inventory",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[INVENTORY["table"], MATERIAL["table"]],
+        expected_columns=["sub_material_id", "sub_material_name"],
+        expected_joins=[_join("inventory_master_transaction", "sub_material_id", "sub_material", "sub_material_id")],
+        expected_aggregation=None,
+        expected_ordering=None,
+        reference_sql=None,
+        expected_result={"type": "safe_failure"},
+        safe_failure="inventory_rate_column_unavailable",
+    ),
+    _case(
+        suffix="inventory-zero-2099",
+        question="Show inventory transactions in 2099.",
+        category="zero_result_cases",
+        module="inventory",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_tables=[INVENTORY["table"]],
+        expected_columns=["trans_date", "inventory_master_transaction_id"],
+        expected_filters=[{"column": "trans_date", "operator": "year", "value": 2099}],
+        reference_sql=None,
+        expected_result={"type": "zero_or_null_result"},
+    ),
+    _case(
+        suffix="employee-joining-trend",
+        question="Show employee joining trend by year.",
+        category="trends",
+        module="employees",
+        complexity="medium",
+        answerable=True,
+        expected_intent="trend",
+        expected_tables=[EMPLOYEE["table"]],
+        expected_columns=["date_of_joining", "employee_id"],
+        expected_aggregation="count",
+        expected_ordering={"column": "joining_year", "direction": "asc", "limit": None},
+        reference_sql=None,
+        expected_result={"type": "time_series"},
+    ),
+    _case(
+        suffix="employee-active-by-project",
+        question="How many active employees are assigned to each project?",
+        category="multiple_filters",
+        module="employees",
+        complexity="hard",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[EMPLOYEE["table"], PROJECT["table"]],
+        expected_columns=["emp_status", "project_id", "project_name", "employee_id"],
+        expected_joins=[_join("employee_table", "project_id", "project_mst", "project_id")],
+        expected_filters=[{"column": "emp_status", "operator": "status", "value": "active"}],
+        expected_aggregation="count",
+        expected_ordering={"column": "employee_count", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="attendance-late-punches",
+        question="Which employees have the most late punch-in records?",
+        category="status_filters",
+        module="timesheets",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PUNCH["table"], ATTENDANCE["table"], EMPLOYEE["table"]],
+        expected_columns=["delay_message", "employee_id", "emp_name"],
+        expected_joins=[_join("employee_attendance_punching_time", "emp_attendance_register_id", "emp_attendance_register", "emp_attendance_register_id"), _join("emp_attendance_register", "employee_id", "employee_table", "employee_id")],
+        expected_filters=[{"column": "delay_message", "operator": "contains", "value": "late"}],
+        expected_aggregation="count",
+        expected_ordering={"column": "late_count", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows_or_zero"},
+    ),
+    _case(
+        suffix="attendance-missing-out-time",
+        question="Show employees with missing out time.",
+        category="missing_data_questions",
+        module="attendance",
+        complexity="medium",
+        answerable=True,
+        expected_intent="exception_detection",
+        expected_tables=[ATTENDANCE["table"], EMPLOYEE["table"]],
+        expected_columns=["out_time", "employee_id", "emp_name", "date"],
+        expected_joins=[_join("emp_attendance_register", "employee_id", "employee_table", "employee_id")],
+        expected_filters=[{"column": "out_time", "operator": "is_null_or_empty"}],
+        reference_sql=None,
+        expected_result={"type": "rows_or_zero"},
+    ),
+    _case(
+        suffix="payroll-no-net-pay",
+        question="Show net payroll by department.",
+        category="unsupported_business_definitions",
+        module="payroll",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[EMPLOYEE["table"], DEPARTMENT["table"]],
+        expected_columns=["sal_ctc", "department_id"],
+        expected_joins=[_join("employee_table", "department_id", "department", "department_id")],
+        expected_result={"type": "safe_failure"},
+        safe_failure="net_payroll_requires_confirmed_payroll_run_table",
+    ),
+    _case(
+        suffix="collection-no-rule",
+        question="Outstanding collection by client.",
+        category="missing_data_questions",
+        module="collections",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[BILLING["table"], PROJECT["table"]],
+        expected_columns=["client_name", "loc_recieved_amount", "amount_to_be_received_this_bill"],
+        expected_joins=[_join("client_bill_raising", "project_id", "project_mst", "project_id")],
+        expected_result={"type": "safe_failure_or_confirmed_proxy"},
+        safe_failure="collection_definition_must_confirm_receipt_columns",
+    ),
+    _case(
+        suffix="vendor-material-count",
+        question="How many materials are mapped to each vendor?",
+        category="grouping",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[VENDOR_MATERIAL["table"]],
+        expected_columns=["vendor_id", "sub_material_id"],
+        expected_aggregation="count",
+        expected_ordering={"column": "material_count", "direction": "desc", "limit": 20},
+        reference_sql="SELECT vendor_id, COUNT(DISTINCT sub_material_id) AS material_count FROM vendor_material_details GROUP BY vendor_id ORDER BY material_count DESC LIMIT 20",
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="vendor-state-material",
+        question="Show vendor material count by vendor state.",
+        category="cross_module_questions",
+        module="vendors",
+        complexity="hard",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[VENDOR_BRANCH["table"], VENDOR_MATERIAL["table"]],
+        expected_columns=["vendor_id", "state", "sub_material_id"],
+        expected_joins=[_join("vendor_material_details", "vendor_id", "vendor_branch_details", "vendor_id")],
+        expected_aggregation="count",
+        expected_ordering={"column": "material_count", "direction": "desc", "limit": 20},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="boq-paid-vs-previous",
+        question="Compare paid billing amount with previous bill amount.",
+        category="comparisons",
+        module="boq",
+        complexity="medium",
+        answerable=True,
+        expected_intent="comparison",
+        expected_tables=[BOQ["table"]],
+        expected_columns=["paid_billing_amount", "previous_bill_amount"],
+        expected_aggregation="sum",
+        reference_sql="SELECT SUM(paid_billing_amount) AS paid_billing_amount, SUM(previous_bill_amount) AS previous_bill_amount FROM boq_unit_bill_raising",
+        expected_result={"type": "scalar_pair"},
+    ),
+    _case(
+        suffix="boq-workorder-billing",
+        question="Show billing quantity by subcontract workorder.",
+        category="grouping",
+        module="boq",
+        complexity="hard",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[BOQ["table"], WORKORDER_DETAIL["table"]],
+        expected_columns=["subcontract_workorder_id", "bill_qty", "billing_quantity"],
+        expected_joins=[_join("boq_unit_bill_raising", "subcontract_workorder_id", "subcontract_workorder", "subcontract_workorder_id")],
+        expected_aggregation="sum",
+        expected_ordering={"column": "bill_qty", "direction": "desc", "limit": 20},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="invoice-number-lookup",
+        question="Find GRN records for invoice number ABC-DOES-NOT-EXIST.",
+        category="zero_result_cases",
+        module="invoices",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["ABC-DOES-NOT-EXIST"],
+        expected_tables=[GRN["table"]],
+        expected_columns=["invoice_no", "invoice_date", "value"],
+        expected_filters=[{"column": "invoice_no", "operator": "matches", "value": "ABC-DOES-NOT-EXIST"}],
+        reference_sql="SELECT invoice_no, invoice_date, value FROM goods_receipt_cum_insp_note WHERE invoice_no LIKE '%ABC-DOES-NOT-EXIST%' LIMIT 20",
+        expected_result={"type": "zero_or_null_result"},
+    ),
+    _case(
+        suffix="project-apspdcl-vs-apepdcl",
+        question="Compare APSPDCL and APEPDCL project values.",
+        category="multiple_entities",
+        module="clients",
+        complexity="medium",
+        answerable=True,
+        expected_intent="comparison",
+        expected_entities=["APSPDCL", "APEPDCL"],
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["client_name", "project_name", "project_value"],
+        expected_filters=[{"column": "client_name", "operator": "matches_any", "values": ["APSPDCL", "APEPDCL"]}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "project_value", "direction": "desc", "limit": 20},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="project-rdss-vizag-material-receipts",
+        question="For RDSS-VIZAG, show received material value by material.",
+        category="entity_specific_filters",
+        module="grn",
+        complexity="hard",
+        answerable=True,
+        expected_intent="ranking",
+        expected_entities=["RDSS-VIZAG"],
+        expected_tables=[GRN["table"], MATERIAL["table"], PROJECT["table"]],
+        expected_columns=["project_name", "sub_material_name", "value", "qty_actual_received"],
+        expected_joins=[_join("goods_receipt_cum_insp_note", "grn_project_id", "project_mst", "project_id"), _join("goods_receipt_cum_insp_note", "grn_sub_material_id", "sub_material", "sub_material_id")],
+        expected_filters=[{"column": "project_name", "operator": "matches", "value": "RDSS-VIZAG"}],
+        expected_aggregation="sum",
+        expected_ordering={"column": "value", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="workorder-payment-status",
+        question="Show subcontract workorder value by payment status.",
+        category="status_filters",
+        module="procurement",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[WORKORDER["table"]],
+        expected_columns=["payment_status", "after_taxes_grandtotal"],
+        expected_aggregation="sum",
+        expected_ordering={"column": "after_taxes_grandtotal", "direction": "desc", "limit": 20},
+        reference_sql="SELECT payment_status, SUM(after_taxes_grandtotal) AS workorder_value FROM subcontract_workorder_details GROUP BY payment_status ORDER BY workorder_value DESC LIMIT 20",
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="workorder-closed-status",
+        question="How many closed subcontract workorders are there?",
+        category="status_filters",
+        module="procurement",
+        complexity="medium",
+        answerable=True,
+        expected_intent="count",
+        expected_tables=[WORKORDER["table"]],
+        expected_columns=["workorder_status", "subcontract_workorder_details_id"],
+        expected_filters=[{"column": "workorder_status", "operator": "status", "value": "closed"}],
+        expected_aggregation="count",
+        reference_sql=None,
+        expected_result={"type": "scalar_number"},
+    ),
+    _case(
+        suffix="project-client-state-filter",
+        question="Show projects for APSPDCL in Andhra Pradesh.",
+        category="multiple_filters",
+        module="projects",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["APSPDCL", "Andhra Pradesh"],
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["client_name", "project_state", "project_name"],
+        expected_filters=[{"column": "client_name", "operator": "matches", "value": "APSPDCL"}, {"column": "project_state", "operator": "matches", "value": "Andhra Pradesh"}],
+        reference_sql=None,
+        expected_result={"type": "rows_or_zero"},
+    ),
+    _case(
+        suffix="material-price-variance",
+        question="Which materials have the biggest issue price variance?",
+        category="business_insight",
+        module="materials",
+        complexity="hard",
+        answerable=True,
+        expected_intent="business_insight",
+        expected_tables=[STORE_USAGE_DETAIL["table"], MATERIAL["table"]],
+        expected_columns=["sub_material_id", "sub_material_name", "base_charge"],
+        expected_joins=[_join("store_material_usage_quantity", "sub_material_id", "sub_material", "sub_material_id")],
+        expected_aggregation="min_max",
+        expected_ordering={"column": "price_variance", "direction": "desc", "limit": 10},
+        reference_sql=None,
+        expected_result={"type": "grouped_rows"},
+    ),
+    _case(
+        suffix="billing-duplicate-risk",
+        question="Show billing by project location.",
+        category="ambiguous_questions",
+        module="billing",
+        complexity="hard",
+        answerable=False,
+        expected_intent="distribution",
+        expected_tables=[BILLING_DETAIL["table"], PROJECT["table"]],
+        expected_columns=["project_locations_id", "locationwise_amt"],
+        expected_result={"type": "clarification_or_safe_failure"},
+        expected_clarification="project_location_mapping_ambiguous",
+    ),
+    _case(
+        suffix="assets-underutilized",
+        question="Which assets are underutilized?",
+        category="unsupported_business_definitions",
+        module="inventory",
+        complexity="hard",
+        answerable=False,
+        expected_intent="business_insight",
+        expected_tables=[],
+        expected_columns=[],
+        expected_result={"type": "safe_failure"},
+        safe_failure="asset_utilization_definition_missing",
+    ),
+    _case(
+        suffix="budget-vs-actual",
+        question="Compare budget versus actual cost by project.",
+        category="unsupported_business_definitions",
+        module="projects",
+        complexity="hard",
+        answerable=False,
+        expected_intent="comparison",
+        expected_tables=[PROJECT["table"]],
+        expected_columns=["project_value"],
+        expected_result={"type": "safe_failure"},
+        safe_failure="actual_cost_and_budget_source_tables_must_be_confirmed",
+    ),
+]
+
+VENDOR_VERIFIED_CASES = [
+    _case(
+        suffix="vendor-verified-count",
+        question="How many vendors are there?",
+        category="counts",
+        module="vendors",
+        complexity="easy",
+        answerable=True,
+        expected_intent="count",
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_id"],
+        expected_aggregation="count",
+        reference_sql="SELECT COUNT(*) AS vendor_count FROM vendor_mst",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="vendor-verified-list",
+        question="List first 10 vendors.",
+        category="simple_lookups",
+        module="vendors",
+        complexity="easy",
+        answerable=True,
+        expected_intent="lookup",
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_id", "vendor_code", "vendor_name"],
+        expected_ordering={"column": "vendor_name", "direction": "asc", "limit": 10},
+        reference_sql="SELECT vendor_id, vendor_code, vendor_name FROM vendor_mst WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL ORDER BY vendor_name ASC LIMIT 10",
+        expected_result={"type": "rows", "max_rows": 10, "required_columns": ["vendor_name"]},
+    ),
+    _case(
+        suffix="vendor-verified-details-kei",
+        question="Show vendor details for KEI Industries.",
+        category="entity_specific_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["KEI Industries"],
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_id", "vendor_code", "vendor_name", "contact_person_name", "contact_no", "email", "vendor_gst_no"],
+        expected_filters=[{"column": "vendor_name", "operator": "matches", "value": "KEI Industries"}],
+        reference_sql="SELECT vendor_id, vendor_code, vendor_name, vendor_address, contact_person_name, contact_no, email, vendor_gst_no FROM vendor_mst WHERE TRIM(vendor_name) = 'KEI Industries' LIMIT 10",
+        expected_result={"type": "rows", "required_columns": ["vendor_id", "vendor_name"]},
+    ),
+    _case(
+        suffix="vendor-verified-code-lookup",
+        question="Show vendor details for vendor code V12.",
+        category="entity_specific_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="lookup",
+        expected_entities=["V12"],
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_id", "vendor_code", "vendor_name"],
+        expected_filters=[{"column": "vendor_code", "operator": "matches", "value": "V12"}],
+        reference_sql="SELECT vendor_id, vendor_code, vendor_name, contact_person_name, contact_no, email FROM vendor_mst WHERE vendor_code = 'V12' LIMIT 10",
+        expected_result={"type": "rows", "required_columns": ["vendor_code", "vendor_name"]},
+    ),
+    _case(
+        suffix="vendor-verified-state",
+        question="Show vendors by state.",
+        category="grouping",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[VENDOR_MASTER["table"], VENDOR_BRANCH["table"]],
+        expected_columns=["vendor_id", "state"],
+        expected_joins=[_join("vendor_branch_details", "vendor_id", "vendor_mst", "vendor_id", "verified")],
+        expected_aggregation="count",
+        expected_ordering={"column": "vendor_count", "direction": "desc", "limit": 20},
+        reference_sql="SELECT b.state, COUNT(DISTINCT m.vendor_id) AS vendor_count FROM vendor_mst m JOIN vendor_branch_details b ON b.vendor_id = m.vendor_id WHERE NULLIF(TRIM(b.state), '') IS NOT NULL GROUP BY b.state ORDER BY vendor_count DESC LIMIT 20",
+        expected_result={"type": "grouped_rows", "required_columns": ["state", "vendor_count"]},
+    ),
+    _case(
+        suffix="vendor-verified-category",
+        question="Show vendors by category.",
+        category="grouping",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="distribution",
+        expected_tables=[VENDOR_MASTER["table"], VENDOR_TYPE["table"]],
+        expected_columns=["vendor_id", "vendor_types_id", "vendor_type"],
+        expected_joins=[_join("vendor_mst", "vendor_types_id", "vendor_types", "vendor_types_id", "verified")],
+        expected_aggregation="count",
+        expected_ordering={"column": "vendor_count", "direction": "desc", "limit": 20},
+        reference_sql="SELECT COALESCE(t.vendor_type, 'Unclassified') AS vendor_category, COUNT(m.vendor_id) AS vendor_count FROM vendor_mst m LEFT JOIN vendor_types t ON t.vendor_types_id = m.vendor_types_id GROUP BY COALESCE(t.vendor_type, 'Unclassified') ORDER BY vendor_count DESC LIMIT 20",
+        expected_result={"type": "grouped_rows", "required_columns": ["vendor_category", "vendor_count"]},
+    ),
+    _case(
+        suffix="vendor-verified-top-purchase-value",
+        question="Show top 5 vendors by purchase value.",
+        category="top_bottom_n",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "total_value"],
+        expected_aggregation="sum",
+        expected_ordering={"column": "purchase_value", "direction": "desc", "limit": 5},
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, SUM(total_value) AS purchase_value FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_value DESC LIMIT 5",
+        expected_result={"type": "grouped_rows", "required_columns": ["vendor_name", "purchase_value"]},
+    ),
+    _case(
+        suffix="vendor-verified-bottom-purchase-value",
+        question="Show bottom 5 vendors by purchase value.",
+        category="top_bottom_n",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "total_value"],
+        expected_aggregation="sum",
+        expected_ordering={"column": "purchase_value", "direction": "asc", "limit": 5},
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, SUM(total_value) AS purchase_value FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_value ASC LIMIT 5",
+        expected_result={"type": "grouped_rows", "required_columns": ["vendor_name", "purchase_value"]},
+    ),
+    _case(
+        suffix="vendor-verified-most-po-count",
+        question="Which vendor has the most purchase orders?",
+        category="top_bottom_n",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "po_form_id"],
+        expected_aggregation="count",
+        expected_ordering={"column": "purchase_order_count", "direction": "desc", "limit": 1},
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, COUNT(po_form_id) AS purchase_order_count FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_order_count DESC LIMIT 1",
+        expected_result={"type": "rows", "max_rows": 1, "required_columns": ["vendor_name", "purchase_order_count"]},
+    ),
+    _case(
+        suffix="vendor-verified-bottom-po-count",
+        question="Show bottom 5 vendors by purchase order count.",
+        category="top_bottom_n",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="ranking",
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "po_form_id"],
+        expected_aggregation="count",
+        expected_ordering={"column": "purchase_order_count", "direction": "asc", "limit": 5},
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, COUNT(po_form_id) AS purchase_order_count FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_order_count ASC LIMIT 5",
+        expected_result={"type": "grouped_rows", "required_columns": ["vendor_name", "purchase_order_count"]},
+    ),
+    _case(
+        suffix="vendor-verified-po-kei",
+        question="Show purchase orders for KEI Industries.",
+        category="entity_specific_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="relationship_lookup",
+        expected_entities=["KEI Industries"],
+        expected_tables=[PO["table"]],
+        expected_columns=["po_form_id", "po_no", "vendor_name", "total_value", "date"],
+        expected_filters=[{"column": "vendor_name", "operator": "matches", "value": "KEI Industries"}],
+        reference_sql="SELECT po_form_id, po_no, TRIM(vendor_name) AS vendor_name, total_value, date FROM po_form WHERE TRIM(vendor_name) = 'KEI Industries' ORDER BY total_value DESC LIMIT 50",
+        expected_result={"type": "rows", "required_columns": ["po_no", "vendor_name", "total_value"]},
+    ),
+    _case(
+        suffix="vendor-verified-purchase-total-kei",
+        question="What is the purchase value for KEI Industries?",
+        category="entity_specific_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="aggregation",
+        expected_entities=["KEI Industries"],
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "total_value"],
+        expected_aggregation="sum",
+        expected_filters=[{"column": "vendor_name", "operator": "matches", "value": "KEI Industries"}],
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, SUM(total_value) AS purchase_value, COUNT(po_form_id) AS purchase_order_count FROM po_form WHERE TRIM(vendor_name) = 'KEI Industries' GROUP BY TRIM(vendor_name) ORDER BY purchase_value DESC LIMIT 20",
+        expected_result={"type": "rows", "required_columns": ["vendor_name", "purchase_value"]},
+    ),
+    _case(
+        suffix="vendor-verified-compare-two",
+        question="Compare KEI Industries and SAGAR INDUSTRIES by purchase value.",
+        category="comparisons",
+        module="vendors",
+        complexity="hard",
+        answerable=True,
+        expected_intent="comparison",
+        expected_entities=["KEI Industries", "SAGAR INDUSTRIES"],
+        expected_tables=[PO["table"]],
+        expected_columns=["vendor_name", "total_value"],
+        expected_aggregation="sum",
+        expected_filters=[{"column": "vendor_name", "operator": "matches_any", "values": ["KEI Industries", "SAGAR INDUSTRIES"]}],
+        reference_sql="SELECT TRIM(vendor_name) AS vendor_name, SUM(total_value) AS purchase_value, COUNT(po_form_id) AS purchase_order_count FROM po_form WHERE TRIM(vendor_name) IN ('KEI Industries', 'SAGAR INDUSTRIES') GROUP BY TRIM(vendor_name) ORDER BY purchase_value DESC LIMIT 20",
+        expected_result={"type": "grouped_rows", "required_columns": ["vendor_name", "purchase_value"]},
+    ),
+    _case(
+        suffix="vendor-verified-telangana-branches",
+        question="How many vendors have branches in Telangana?",
+        category="multiple_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="count",
+        expected_entities=["Telangana"],
+        expected_tables=[VENDOR_MASTER["table"], VENDOR_BRANCH["table"]],
+        expected_columns=["vendor_id", "state"],
+        expected_joins=[_join("vendor_branch_details", "vendor_id", "vendor_mst", "vendor_id", "verified")],
+        expected_filters=[{"column": "state", "operator": "matches", "value": "Telangana"}],
+        expected_aggregation="count",
+        reference_sql="SELECT COUNT(DISTINCT m.vendor_id) AS vendor_count FROM vendor_mst m JOIN vendor_branch_details b ON b.vendor_id = m.vendor_id WHERE b.state = 'Telangana'",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="vendor-verified-msme-count",
+        question="How many MSME vendors are there?",
+        category="multiple_filters",
+        module="vendors",
+        complexity="medium",
+        answerable=True,
+        expected_intent="count",
+        expected_entities=["MSME"],
+        expected_tables=[VENDOR_MASTER["table"], VENDOR_TYPE["table"]],
+        expected_columns=["vendor_id", "vendor_types_id", "vendor_type"],
+        expected_joins=[_join("vendor_mst", "vendor_types_id", "vendor_types", "vendor_types_id", "verified")],
+        expected_filters=[{"column": "vendor_type", "operator": "matches", "value": "MSME"}],
+        expected_aggregation="count",
+        reference_sql="SELECT COUNT(m.vendor_id) AS vendor_count FROM vendor_mst m JOIN vendor_types t ON t.vendor_types_id = m.vendor_types_id WHERE t.vendor_type = 'MSME'",
+        expected_result={"type": "scalar_number", "min": 0},
+    ),
+    _case(
+        suffix="vendor-verified-active-unsupported",
+        question="Show active vendors.",
+        category="unsupported_business_definitions",
+        module="vendors",
+        complexity="medium",
+        answerable=False,
+        expected_intent="lookup",
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_active_status"],
+        expected_result={"type": "clarification_or_safe_failure"},
+        expected_clarification="vendor_active_status_values_unavailable",
+        safe_failure="vendor_active_status_values_unavailable",
+    ),
+    _case(
+        suffix="vendor-verified-ambiguous-name",
+        question="Show vendor details for Sri Rajyalakshmi.",
+        category="ambiguous_questions",
+        module="vendors",
+        complexity="medium",
+        answerable=False,
+        expected_intent="lookup",
+        expected_entities=["Sri Rajyalakshmi"],
+        expected_tables=[VENDOR_MASTER["table"]],
+        expected_columns=["vendor_name"],
+        expected_result={"type": "clarification"},
+        expected_clarification="multiple_vendor_matches",
+    ),
+    _case(
+        suffix="vendor-verified-performance-unsupported",
+        question="Which vendor performs best?",
+        category="unsupported_business_definitions",
+        module="vendors",
+        complexity="hard",
+        answerable=False,
+        expected_intent="business_insight",
+        expected_tables=[],
+        expected_columns=[],
+        expected_result={"type": "clarification_or_safe_failure"},
+        expected_clarification="vendor_performance",
+        safe_failure="vendor_performance_definition_unavailable",
+    ),
+    _case(
+        suffix="vendor-verified-payment-unsupported",
+        question="Show vendor payment history.",
+        category="unsupported_business_definitions",
+        module="vendors",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[],
+        expected_columns=[],
+        expected_result={"type": "clarification_or_safe_failure"},
+        expected_clarification="vendor_payment_history",
+        safe_failure="vendor_payment_history_unavailable",
+    ),
+    _case(
+        suffix="vendor-verified-credit-unsupported",
+        question="Give vendor credit analysis.",
+        category="unsupported_business_definitions",
+        module="vendors",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[],
+        expected_columns=[],
+        expected_result={"type": "safe_failure"},
+        safe_failure="vendor_credit_analysis_unavailable",
+    ),
+    _case(
+        suffix="vendor-verified-delivery-kpi-unsupported",
+        question="Show vendor delivery KPI.",
+        category="unsupported_business_definitions",
+        module="vendors",
+        complexity="hard",
+        answerable=False,
+        expected_intent="missing_kpi",
+        expected_tables=[],
+        expected_columns=[],
+        expected_result={"type": "safe_failure"},
+        safe_failure="vendor_delivery_kpi_unavailable",
+    ),
+]
+
+UNANSWERABLE_CASES = [
+    ("profit-by-project", "What is the profit by project?", "finance", "missing_kpi", "profit_loss_requires_cost_rule"),
+    ("loss-last-year", "How much loss did we face last year?", "finance", "missing_kpi", "profit_loss_requires_cost_rule"),
+    ("margin-vendor", "Which vendor gives the best margin?", "vendors", "missing_kpi", "margin_requires_cost_and_sales_rule"),
+    ("department-performance", "Which department performs best overall?", "departments", "ambiguous_questions", "performance_metric_required"),
+    ("employee-productivity", "Who is the most productive employee?", "employees", "ambiguous_questions", "productivity_metric_required"),
+    ("project-risk-score", "Which project has the highest risk score?", "projects", "unsupported_business_definitions", "risk_score_definition_missing"),
+    ("customer-satisfaction", "Which client is happiest?", "clients", "unsupported_business_definitions", "satisfaction_metric_missing"),
+    ("stockout-risk", "Which materials will stock out next month?", "inventory", "unsupported_business_definitions", "forecasting_model_missing"),
+    ("cash-collected", "How much cash was collected from each client?", "collections", "missing_data_questions", "collection_source_must_be_confirmed"),
+    ("timesheet-hours", "Average timesheet hours by employee.", "timesheets", "missing_data_questions", "timesheet_hours_table_not_confirmed"),
+]
+
+
+def _generated_cases() -> list[dict[str, Any]]:
+    cases = list(BASE_CASES)
+    for key, module, table, pk, label in COUNT_SPECS:
+        cases.append(_case(
+            suffix=f"count-{key}",
+            question=f"How many {label}s are available?",
+            category="counts",
+            module=module,
+            complexity="easy",
+            answerable=True,
+            expected_intent="count",
+            expected_tables=[table],
+            expected_columns=[pk],
+            expected_aggregation="count",
+            reference_sql=f"SELECT COUNT(*) AS row_count FROM {table}",
+            expected_result={"type": "scalar_number", "min": 0},
+        ))
+        cases.append(_case(
+            suffix=f"exists-{key}",
+            question=f"Are there any {label}s in the database?",
+            category="existence_check",
+            module=module,
+            complexity="easy",
+            answerable=True,
+            expected_intent="existence_check",
+            expected_tables=[table],
+            expected_columns=[pk],
+            expected_aggregation="count",
+            reference_sql=f"SELECT COUNT(*) AS row_count FROM {table}",
+            expected_result={"type": "scalar_number", "min": 0},
+        ))
+
+    for key, module, table, column, label in TOTAL_SPECS:
+        cases.append(_case(
+            suffix=f"total-{key}",
+            question=f"What is the total {label}?",
+            category="totals",
+            module=module,
+            complexity="easy",
+            answerable=True,
+            expected_intent="aggregation",
+            expected_tables=[table],
+            expected_columns=[column],
+            expected_aggregation="sum",
+            reference_sql=f"SELECT SUM({column}) AS total_{column} FROM {table}",
+            expected_result={"type": "scalar_number", "min": 0},
+        ))
+        cases.append(_case(
+            suffix=f"avg-{key}",
+            question=f"What is the average {label}?",
+            category="averages",
+            module=module,
+            complexity="easy",
+            answerable=True,
+            expected_intent="aggregation",
+            expected_tables=[table],
+            expected_columns=[column],
+            expected_aggregation="avg",
+            reference_sql=f"SELECT AVG({column}) AS average_{column} FROM {table}",
+            expected_result={"type": "scalar_number"},
+        ))
+        cases.append(_case(
+            suffix=f"minmax-{key}",
+            question=f"What are the minimum and maximum {label}?",
+            category="minimum_maximum",
+            module=module,
+            complexity="medium",
+            answerable=True,
+            expected_intent="aggregation",
+            expected_tables=[table],
+            expected_columns=[column],
+            expected_aggregation="min_max",
+            reference_sql=f"SELECT MIN({column}) AS min_{column}, MAX({column}) AS max_{column} FROM {table}",
+            expected_result={"type": "scalar_pair"},
+        ))
+
+    for key, module, table, group_col, id_col, label in GROUP_SPECS:
+        cases.append(_case(
+            suffix=f"group-{key}",
+            question=f"Show {label}.",
+            category="grouping",
+            module=module,
+            complexity="medium",
+            answerable=True,
+            expected_intent="distribution",
+            expected_tables=[table],
+            expected_columns=[group_col, id_col],
+            expected_aggregation="count",
+            expected_ordering={"column": "row_count", "direction": "desc", "limit": 20},
+            reference_sql=f"SELECT {group_col}, COUNT({id_col}) AS row_count FROM {table} GROUP BY {group_col} ORDER BY row_count DESC LIMIT 20",
+            expected_result={"type": "grouped_rows", "required_columns": [group_col, "row_count"]},
+        ))
+
+    for key, module, table, label_col, metric_col, label, limit in RANKING_SPECS:
+        direction = "asc" if key.startswith("bottom") else "desc"
+        word = "bottom" if direction == "asc" else "top"
+        cases.append(_case(
+            suffix=f"rank-{key}",
+            question=f"Show the {word} {limit} {label}s.",
+            category="top_bottom_n",
+            module=module,
+            complexity="medium",
+            answerable=True,
+            expected_intent="ranking",
+            expected_tables=[table],
+            expected_columns=[label_col, metric_col],
+            expected_ordering={"column": metric_col, "direction": direction, "limit": limit},
+            reference_sql=f"SELECT {label_col}, {metric_col} FROM {table} ORDER BY {metric_col} {direction.upper()} LIMIT {limit}",
+            expected_result={"type": "rows", "max_rows": limit, "required_columns": [label_col, metric_col]},
+        ))
+
+    for key, module, table, date_col, metric_col, label, year in DATE_SPECS:
+        cases.append(_case(
+            suffix=f"year-{key}",
+            question=f"Show {label}.",
+            category="calendar_years",
+            module=module,
+            complexity="hard",
+            answerable=True,
+            expected_intent="trend",
+            expected_tables=[table],
+            expected_columns=[date_col, metric_col],
+            expected_filters=[{"column": date_col, "operator": "year", "value": year}],
+            expected_aggregation="count_or_sum",
+            reference_sql=None,
+            expected_result={"type": "date_filtered_rows"},
+        ))
+        cases.append(_case(
+            suffix=f"fy-{key}",
+            question=f"Show {label} for financial year {year}-{str(year + 1)[-2:]}.",
+            category="financial_years",
+            module=module,
+            complexity="hard",
+            answerable=True,
+            expected_intent="trend",
+            expected_tables=[table],
+            expected_columns=[date_col, metric_col],
+            expected_filters=[{"column": date_col, "operator": "financial_year", "start": f"{year}-04-01", "end": f"{year + 1}-03-31"}],
+            expected_aggregation="count_or_sum",
+            reference_sql=None,
+            expected_result={"type": "date_filtered_rows"},
+        ))
+
+    cases.extend(CROSS_MODULE_CASES)
+    cases.extend(EXTRA_REVIEW_CASES)
+    cases.extend(VENDOR_VERIFIED_CASES)
+
+    for key, question, module, category, reason in UNANSWERABLE_CASES:
+        cases.append(_case(
+            suffix=f"safe-{key}",
+            question=question,
+            category=category,
+            module=module,
+            complexity="hard",
+            answerable=False,
+            expected_intent="missing_kpi" if "profit" in question.lower() or "loss" in question.lower() or "margin" in question.lower() else "business_insight",
+            expected_tables=[],
+            expected_columns=[],
+            expected_aggregation=None,
+            reference_sql=None,
+            expected_result={"type": "safe_failure"},
+            expected_clarification=reason if "required" in reason else None,
+            safe_failure=reason,
+        ))
+
+    entity_questions = [
+        ("entity-rdss-billing", "Show billing for RDSS-VIZAG.", "billing", [PROJECT["table"], BILLING["table"]], ["RDSS-VIZAG"], ["project_name", "gross_bill_value"]),
+        ("entity-rdss-po", "Show purchase orders for RDSS-VIZAG.", "purchase_orders", [PROJECT["table"], PO["table"]], ["RDSS-VIZAG"], ["project_name", "po_no", "total_value"]),
+        ("entity-vendor-branch", "Show branch details for vendor 12.", "vendors", [VENDOR_BRANCH["table"]], ["vendor 12"], ["vendor_id", "contact_person", "state"]),
+        ("entity-material-vendors", "Which vendors supply material 100?", "vendors", [VENDOR_MATERIAL["table"], MATERIAL["table"]], ["material 100"], ["vendor_id", "sub_material_id"]),
+        ("entity-employee-attendance", "Show last attendance records for employee 1045.", "attendance", [EMPLOYEE["table"], ATTENDANCE["table"]], ["employee 1045"], ["employee_id", "date"]),
+        ("entity-two-projects", "Compare RDSS-VIZAG and HRDCL billing.", "billing", [PROJECT["table"], BILLING["table"]], ["RDSS-VIZAG", "HRDCL"], ["project_name", "gross_bill_value"]),
+        ("entity-two-clients", "Compare APEPDCL and APSPDCL projects.", "clients", [PROJECT["table"]], ["APEPDCL", "APSPDCL"], ["client_name", "project_name"]),
+        ("entity-workorder", "Show subcontract workorders for project 2.", "procurement", [WORKORDER["table"], PROJECT["table"]], ["project 2"], ["project_id", "workorder_no", "after_taxes_grandtotal"]),
+    ]
+    for key, question, module, tables, entities, columns in entity_questions:
+        cases.append(_case(
+            suffix=key,
+            question=question,
+            category="entity_specific_filters" if len(entities) == 1 else "multiple_entities",
+            module=module,
+            complexity="hard",
+            answerable=True,
+            expected_intent="lookup" if len(entities) == 1 else "comparison",
+            expected_entities=entities,
+            expected_tables=tables,
+            expected_columns=columns,
+            expected_filters=[{"entity": entity, "operator": "resolved_match"} for entity in entities],
+            expected_aggregation="sum" if "billing" in question.lower() else None,
+            reference_sql=None,
+            expected_result={"type": "rows_or_grouped_rows"},
+        ))
+
+    return cases
+
+
+def _expected_interpretation(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "operation": case["expected_intent"],
+        "business_module": case["module"],
+        "entities": list(case["expected_entities"]),
+        "requested_columns": list(case["expected_columns"]),
+        "aggregation": case["expected_aggregation"],
+        "filters": list(case["expected_filters"]),
+        "ordering": case["expected_ordering"],
+    }
+
+
+def _verified_query_plan(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "operation": case["expected_intent"],
+        "tables": list(case["expected_tables"]),
+        "columns": list(case["expected_columns"]),
+        "joins": list(case["expected_joins"]),
+        "filters": list(case["expected_filters"]),
+        "aggregation": case["expected_aggregation"],
+        "ordering": case["expected_ordering"],
+        "requires_clarification": bool(case["expected_clarification"]),
+        "safe_failure": case["safe_failure"],
+    }
+
+
+def _ground_truth_status(case: dict[str, Any]) -> str:
+    if case["answerable"] and case["reference_sql"]:
+        return "answerable_verified"
+    if case["expected_clarification"]:
+        return "clarification_verified"
+    if not case["answerable"]:
+        return "safe_failure_verified"
+    return "incomplete"
+
+
+def generated_benchmark() -> list[BenchmarkItem]:
+    raw_cases = _generated_cases()
+    seen = set()
+    unique = []
+    for case in raw_cases:
+        if case["suffix"] in seen:
+            continue
+        seen.add(case["suffix"])
+        unique.append(apply_ground_truth(case))
+
+    items = []
+    for index, case in enumerate(unique, start=1):
+        case = dict(case)
+        split = "holdout" if index % 4 == 0 else "development"
+        item_id = f"erp-{index:03d}-{case.pop('suffix')}"
+        case["expected_interpretation"] = _expected_interpretation(case)
+        case["verified_query_plan"] = _verified_query_plan(case)
+        case["expected_answer"] = dict(case["expected_result"])
+        case["ground_truth_status"] = _ground_truth_status(case)
+        items.append(BenchmarkItem(id=item_id, split=split, **case))
+    return items
+
+
+def _load_frozen_benchmark(path: Path) -> list[BenchmarkItem]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("version") != ERP_BENCHMARK_VERSION:
+        raise ValueError(
+            f"Unsupported frozen benchmark version: {payload.get('version')}"
+        )
+    raw_items = payload.get("items", [])
+    canonical_items = json.dumps(
+        raw_items,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    actual_hash = hashlib.sha256(canonical_items.encode("utf-8")).hexdigest()
+    if actual_hash != payload.get("benchmark_sha256"):
+        raise ValueError(
+            "Frozen ERP benchmark checksum mismatch. Regenerate it with "
+            "erp_benchmark_freezer.py after reviewed ground-truth changes."
+        )
+    holdout_ids = [
+        str(item["id"])
+        for item in raw_items
+        if item.get("split") == "holdout"
+    ]
+    holdout_hash = hashlib.sha256(
+        "\n".join(holdout_ids).encode("utf-8")
+    ).hexdigest()
+    if holdout_hash != payload.get("holdout_ids_sha256"):
+        raise ValueError("Frozen ERP holdout split checksum mismatch.")
+
+    items = []
+    for raw_item in raw_items:
+        item = dict(raw_item)
+        item.pop("version", None)
+        items.append(BenchmarkItem(**item))
+    return items
+
+
+def load_benchmark() -> list[BenchmarkItem]:
+    if FROZEN_BENCHMARK_FILE.exists():
+        return _load_frozen_benchmark(FROZEN_BENCHMARK_FILE)
+    return generated_benchmark()
+
+
+def benchmark_summary(items: list[BenchmarkItem] | None = None) -> dict[str, Any]:
+    items = items or load_benchmark()
+    by_split = {}
+    by_module = {}
+    by_category = {}
+    by_complexity = {}
+    for item in items:
+        by_split[item.split] = by_split.get(item.split, 0) + 1
+        by_module[item.module] = by_module.get(item.module, 0) + 1
+        by_category[item.category] = by_category.get(item.category, 0) + 1
+        by_complexity[item.complexity] = by_complexity.get(item.complexity, 0) + 1
+    return {
+        "version": ERP_BENCHMARK_VERSION,
+        "total": len(items),
+        "by_split": dict(sorted(by_split.items())),
+        "by_module": dict(sorted(by_module.items())),
+        "by_category": dict(sorted(by_category.items())),
+        "by_complexity": dict(sorted(by_complexity.items())),
+        "answerable": sum(1 for item in items if item.answerable),
+        "safe_failure_expected": sum(1 for item in items if not item.answerable),
+    }

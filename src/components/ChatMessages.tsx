@@ -3,18 +3,22 @@ import type { Message } from "../types/chat";
 import {
   buildResponsePresentation,
   type CellValue,
+  type DisplayTable,
   formatCell,
+  isNumericColumn,
   labelColumn,
 } from "../utils/responsePresentation";
 
 interface ChatMessagesProps {
   messages: Message[];
   loading: boolean;
+  onSend?: (message: string) => void;
 }
 
 export default function ChatMessages({
   messages,
   loading,
+  onSend,
 }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -29,9 +33,24 @@ export default function ChatMessages({
     const confidence = message.response?.confidence;
 
     if (!presentation) {
+      const clarificationOptions = extractClarificationOptions(message.content);
       return (
         <div className="space-y-3">
           <div className="whitespace-pre-wrap">{message.content}</div>
+          {onSend && clarificationOptions.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {clarificationOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onSend(option)}
+                  className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-white"
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
           {confidence && renderConfidence(confidence)}
         </div>
       );
@@ -42,12 +61,41 @@ export default function ChatMessages({
         <p>{presentation.summary}</p>
 
         {presentation.table && (
-          <div className="overflow-x-auto rounded-md border border-gray-200">
-            <table className="min-w-full border-collapse text-left text-xs">
-              <thead className="bg-gray-50 text-gray-500">
+          <div className="rounded-md border border-gray-200 bg-white">
+            <div className="flex items-center justify-end gap-2 border-b border-gray-100 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => copyTable(presentation.table)}
+                className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Copy Table
+              </button>
+              {onSend && (
+                <button
+                  type="button"
+                  onClick={() => onSend("Explain this result in simple words.")}
+                  className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Explain
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-80 overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-[13px]">
+              <thead className="sticky top-0 z-10 bg-gray-50 text-gray-500">
                 <tr>
-                  {presentation.table.columns.map((column) => (
-                    <th key={column} className="px-3 py-2 font-semibold">
+                  {presentation.table.columns.map((column, index) => (
+                    <th
+                      key={column}
+                      className={`border-b border-gray-200 px-3 py-2 font-semibold ${
+                        isNumericColumn(column) ? "text-right" : "text-left"
+                      } ${
+                        index === 1
+                          ? "sticky left-0 z-20 bg-gray-50 shadow-[1px_0_0_#e5e7eb]"
+                          : ""
+                      }`}
+                    >
                       {labelColumn(column)}
                     </th>
                   ))}
@@ -55,9 +103,18 @@ export default function ChatMessages({
               </thead>
               <tbody>
                 {presentation.table.rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="border-t border-gray-100">
-                    {presentation.table?.columns.map((column) => (
-                      <td key={column} className="px-3 py-2 text-gray-800">
+                  <tr key={rowIndex} className="odd:bg-white even:bg-gray-50/70">
+                    {presentation.table?.columns.map((column, columnIndex) => (
+                      <td
+                        key={column}
+                        className={`border-b border-gray-100 px-3 py-2 text-gray-800 ${
+                          isNumericColumn(column) ? "text-right font-medium tabular-nums" : "text-left"
+                        } ${
+                          columnIndex === 1
+                            ? "sticky left-0 z-10 max-w-52 bg-inherit font-medium shadow-[1px_0_0_#e5e7eb]"
+                            : ""
+                        }`}
+                      >
                         {formatCell(column, row[column] as CellValue)}
                       </td>
                     ))}
@@ -65,12 +122,13 @@ export default function ChatMessages({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
-        {!presentation.table && presentation.bullets.length > 0 && (
+        {presentation.bullets.length > 0 && (
           <ul className="list-disc space-y-1 pl-5">
-            {presentation.bullets.slice(0, 5).map((bullet) => (
+            {presentation.bullets.slice(0, 8).map((bullet) => (
               <li key={bullet}>{bullet}</li>
             ))}
           </ul>
@@ -105,21 +163,46 @@ export default function ChatMessages({
     );
   }
 
+  function copyTable(table: DisplayTable | null) {
+    if (!table) return;
+    const text = [
+      table.columns.map(labelColumn).join("\t"),
+      ...table.rows.map((row) =>
+        table.columns
+          .map((column) => formatCell(column, row[column] as CellValue))
+          .join("\t")
+      ),
+    ].join("\n");
+
+    void navigator.clipboard?.writeText(text);
+  }
+
+  function extractClarificationOptions(content: string): string[] {
+    const options = content
+      .split("\n")
+      .map((line) => line.trim())
+      .map((line) => line.match(/^\d+\.\s+(.+)$/)?.[1]?.trim())
+      .filter((value): value is string => Boolean(value))
+      .filter((value) => value.length <= 80)
+      .filter((value) => !value.includes("`"));
+
+    return Array.from(new Set(options)).slice(0, 8);
+  }
+
   function renderConfidence(confidence: NonNullable<Message["response"]>["confidence"]) {
     if (!confidence) return null;
     const levelStyles = {
-      high: "border-emerald-200 bg-emerald-50 text-emerald-800",
-      medium: "border-amber-200 bg-amber-50 text-amber-800",
-      low: "border-red-200 bg-red-50 text-red-800",
+      high: "text-emerald-700",
+      medium: "text-amber-700",
+      low: "text-red-700",
     }[confidence.confidence_level];
 
     return (
-      <div className={`rounded-md border px-3 py-2 text-xs ${levelStyles}`}>
+      <div className="border-t border-gray-100 pt-2 text-[11px] text-gray-500">
         <div className="flex items-center justify-between gap-3">
-          <span className="font-semibold capitalize">
-            {confidence.confidence_level} confidence
+          <span className={`font-semibold capitalize ${levelStyles}`}>
+            Confidence: {confidence.confidence_level} ({confidence.confidence_score}%)
           </span>
-          <span className="font-mono">{confidence.confidence_score}%</span>
         </div>
         <details className="mt-1">
           <summary className="cursor-pointer font-medium">Why?</summary>
@@ -194,6 +277,7 @@ export default function ChatMessages({
               text-gray-500
             "
           >
+            <span className="text-xs font-medium">Checking verified ERP data</span>
             <span className="animate-bounce">●</span>
             <span
               className="animate-bounce"

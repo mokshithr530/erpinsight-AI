@@ -1,5 +1,8 @@
 import time
 
+from datetime import date
+from decimal import Decimal
+
 import response_cache as response_cache_module
 
 
@@ -105,3 +108,28 @@ def test_corrupt_or_failing_redis_never_breaks_request(tmp_path):
     cache.set("question", database, {"answer": "A"}, "gemini", "model-a")
 
     assert cache.get("question", database, "gemini", "model-a") is None
+
+
+def test_cache_serializes_decimal_and_date_values(tmp_path):
+    cache = response_cache_module.ResponseCache()
+    cache.client = InMemoryRedis()
+    database = tmp_path / "sample.db"
+    database.write_bytes(b"database")
+    response = {
+        "success": True,
+        "answer": "ok",
+        "result": {
+            "records": [
+                {"amount": Decimal("123.45"), "bill_date": date(2026, 7, 21)},
+                {"amount": Decimal("10"), "bill_date": date(2026, 7, 20)},
+            ],
+        },
+    }
+
+    cache.set("question", database, response, "openrouter", "deepseek")
+    cached = cache.get("question", database, "openrouter", "deepseek")
+
+    assert cached["result"]["records"] == [
+        {"amount": 123.45, "bill_date": "2026-07-21"},
+        {"amount": 10, "bill_date": "2026-07-20"},
+    ]

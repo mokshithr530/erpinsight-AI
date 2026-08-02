@@ -61,6 +61,26 @@ class SchemaReader:
 
         return foreign_keys
 
+    def get_indexes(self, table_name):
+        connection = self._get_connection()
+        cursor = connection.cursor()
+        escaped = table_name.replace("'", "''")
+        cursor.execute(f"PRAGMA index_list('{escaped}')")
+        indexes = []
+        for index_row in cursor.fetchall():
+            index_name = index_row[1]
+            unique = bool(index_row[2])
+            escaped_index = index_name.replace("'", "''")
+            cursor.execute(f"PRAGMA index_info('{escaped_index}')")
+            columns = [row[2] for row in cursor.fetchall()]
+            if columns:
+                indexes.append({
+                    "name": index_name,
+                    "columns": columns,
+                    "unique": unique,
+                })
+        return indexes
+
     def read_schema(self):
 
         schema = {}
@@ -69,11 +89,20 @@ class SchemaReader:
 
         for table in tables:
 
+            indexes = self.get_indexes(table)
             schema[table] = {
 
                 "columns": self.get_columns(table),
 
-                "foreign_keys": self.get_foreign_keys(table)
+                "foreign_keys": self.get_foreign_keys(table),
+
+                "indexes": indexes,
+
+                "constraints": [
+                    {"name": index["name"], "type": "unique", "columns": index["columns"]}
+                    for index in indexes
+                    if index["unique"]
+                ],
 
             }
 

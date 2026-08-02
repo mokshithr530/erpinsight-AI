@@ -159,6 +159,150 @@ def test_mysql_validate_accepts_select_and_rejects_unsafe(monkeypatch):
     assert adapter.validate_sql("SELECT * FROM missing", "db")["valid"] is False
 
 
+def test_mysql_validate_rejects_duplicate_prone_header_sum_after_detail_join(monkeypatch):
+    adapter = MySQLAdapter()
+    schema = {
+        "invoice_header": {
+            "columns": [
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int", "primary_key": True},
+                {"column_name": "invoice_total", "name": "invoice_total", "data_type": "decimal"},
+            ],
+            "foreign_keys": [],
+        },
+        "invoice_detail": {
+            "columns": [
+                {"column_name": "invoice_line_id", "name": "invoice_line_id", "data_type": "int", "primary_key": True},
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int"},
+                {"column_name": "product_name", "name": "product_name", "data_type": "varchar"},
+                {"column_name": "line_amount", "name": "line_amount", "data_type": "decimal"},
+            ],
+            "foreign_keys": [],
+        },
+    }
+    catalog = {
+        "metrics": [{"metric": "billing", "table": "invoice_header", "column": "invoice_total"}],
+        "join_paths": [{
+            "left_table": "invoice_detail",
+            "left_column": "invoice_id",
+            "right_table": "invoice_header",
+            "right_column": "invoice_id",
+            "duplicate_amplification_risk": "medium",
+            "required_pre_aggregation": True,
+        }],
+    }
+    monkeypatch.setattr(adapter, "inspect_schema", lambda database: schema)
+    monkeypatch.setattr(adapter, "business_catalog", lambda database: catalog)
+
+    validation = adapter.validate_sql(
+        """
+        SELECT d.product_name, SUM(h.invoice_total) AS total_amount
+        FROM invoice_header h
+        JOIN invoice_detail d ON d.invoice_id = h.invoice_id
+        GROUP BY d.product_name
+        """,
+        "db",
+    )
+
+    assert validation["valid"] is False
+    assert "Duplicate-prone aggregation detected" in validation["errors"][0]
+    assert "Pre-aggregate" in validation["errors"][0]
+
+
+def test_mysql_validate_allows_detail_sum_on_risky_join(monkeypatch):
+    adapter = MySQLAdapter()
+    schema = {
+        "invoice_header": {
+            "columns": [
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int", "primary_key": True},
+                {"column_name": "invoice_total", "name": "invoice_total", "data_type": "decimal"},
+            ],
+            "foreign_keys": [],
+        },
+        "invoice_detail": {
+            "columns": [
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int"},
+                {"column_name": "line_amount", "name": "line_amount", "data_type": "decimal"},
+            ],
+            "foreign_keys": [],
+        },
+    }
+    catalog = {
+        "metrics": [{"metric": "billing", "table": "invoice_header", "column": "invoice_total"}],
+        "join_paths": [{
+            "left_table": "invoice_detail",
+            "left_column": "invoice_id",
+            "right_table": "invoice_header",
+            "right_column": "invoice_id",
+            "duplicate_amplification_risk": "medium",
+            "required_pre_aggregation": True,
+        }],
+    }
+    monkeypatch.setattr(adapter, "inspect_schema", lambda database: schema)
+    monkeypatch.setattr(adapter, "business_catalog", lambda database: catalog)
+
+    validation = adapter.validate_sql(
+        """
+        SELECT h.invoice_id, SUM(d.line_amount) AS line_total
+        FROM invoice_header h
+        JOIN invoice_detail d ON d.invoice_id = h.invoice_id
+        GROUP BY h.invoice_id
+        """,
+        "db",
+    )
+
+    assert validation["valid"] is True
+
+
+def test_mysql_validate_allows_preaggregated_header_sum_before_join(monkeypatch):
+    adapter = MySQLAdapter()
+    schema = {
+        "invoice_header": {
+            "columns": [
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int", "primary_key": True},
+                {"column_name": "invoice_total", "name": "invoice_total", "data_type": "decimal"},
+            ],
+            "foreign_keys": [],
+        },
+        "invoice_detail": {
+            "columns": [
+                {"column_name": "invoice_id", "name": "invoice_id", "data_type": "int"},
+                {"column_name": "product_name", "name": "product_name", "data_type": "varchar"},
+            ],
+            "foreign_keys": [],
+        },
+    }
+    catalog = {
+        "metrics": [{"metric": "billing", "table": "invoice_header", "column": "invoice_total"}],
+        "join_paths": [{
+            "left_table": "invoice_detail",
+            "left_column": "invoice_id",
+            "right_table": "invoice_header",
+            "right_column": "invoice_id",
+            "duplicate_amplification_risk": "medium",
+            "required_pre_aggregation": True,
+        }],
+    }
+    monkeypatch.setattr(adapter, "inspect_schema", lambda database: schema)
+    monkeypatch.setattr(adapter, "business_catalog", lambda database: catalog)
+
+    validation = adapter.validate_sql(
+        """
+        WITH header_totals AS (
+            SELECT invoice_id, SUM(invoice_total) AS invoice_total
+            FROM invoice_header
+            GROUP BY invoice_id
+        )
+        SELECT d.product_name, SUM(ht.invoice_total) AS total_amount
+        FROM header_totals ht
+        JOIN invoice_detail d ON d.invoice_id = ht.invoice_id
+        GROUP BY d.product_name
+        """,
+        "db",
+    )
+
+    assert validation["valid"] is True
+
+
 def test_session_can_store_mysql_connection(monkeypatch, tmp_path):
     monkeypatch.setattr(active_database, "SESSIONS_DIR", tmp_path / "sessions")
 

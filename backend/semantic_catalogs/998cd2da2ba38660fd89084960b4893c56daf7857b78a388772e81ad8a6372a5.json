@@ -1,0 +1,3504 @@
+{
+  "authority": "verified_erp_primary",
+  "business_concepts": [
+    {
+      "aliases": [
+        "project",
+        "site",
+        "work",
+        "job",
+        "scheme"
+      ],
+      "alternative_candidates": [
+        "project_short_name",
+        "name_of_work",
+        "project_location"
+      ],
+      "ambiguity_notes": "Prefer project_mst over similarly named empty or technical project tables.",
+      "applicable_module": "projects",
+      "concept": "project",
+      "confidence": 0.98,
+      "display_column": "project_name",
+      "preferred_column": "project_id",
+      "preferred_table": "project_mst",
+      "source_of_evidence": "verified benchmark project count/list/details cases",
+      "verification_status": "verified"
+    },
+    {
+      "aliases": [
+        "client",
+        "customer",
+        "party",
+        "end customer"
+      ],
+      "alternative_candidates": [
+        "po_form.end_customers"
+      ],
+      "ambiguity_notes": "Client is stored denormalized on project_mst for project-level questions.",
+      "applicable_module": "clients",
+      "concept": "client",
+      "confidence": 0.86,
+      "display_column": "client_name",
+      "preferred_column": "client_name",
+      "preferred_table": "project_mst",
+      "source_of_evidence": "verified project and billing benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "aliases": [
+        "vendor",
+        "vendors",
+        "supplier",
+        "suppliers",
+        "contractor",
+        "seller"
+      ],
+      "alternative_candidates": [
+        "po_form.vendor_name",
+        "grn_master.vendor_name",
+        "site_vendor_mst.vendor_name"
+      ],
+      "ambiguity_notes": "Use vendor_mst for lookup/details/counts; use po_form.vendor_name for PO purchase reporting.",
+      "applicable_module": "vendors",
+      "concept": "vendor",
+      "confidence": 0.98,
+      "display_column": "vendor_name",
+      "preferred_column": "vendor_id",
+      "preferred_table": "vendor_mst",
+      "source_of_evidence": "verified vendor master row counts and PO vendor overlap",
+      "verification_status": "verified"
+    },
+    {
+      "aliases": [
+        "employee",
+        "staff",
+        "worker",
+        "emp"
+      ],
+      "alternative_candidates": [
+        "emp_ref_id",
+        "comp_emp_id"
+      ],
+      "ambiguity_notes": "employee_table is the employee master table.",
+      "applicable_module": "employees",
+      "concept": "employee",
+      "confidence": 0.96,
+      "display_column": "emp_name",
+      "preferred_column": "employee_id",
+      "preferred_table": "employee_table",
+      "source_of_evidence": "verified employee and attendance benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "aliases": [
+        "department",
+        "dept",
+        "division",
+        "team"
+      ],
+      "alternative_candidates": [
+        "employee_table.department_id"
+      ],
+      "ambiguity_notes": "Performance is ambiguous without a KPI; headcount can be answered.",
+      "applicable_module": "departments",
+      "concept": "department",
+      "confidence": 0.93,
+      "display_column": "department_name",
+      "preferred_column": "department_id",
+      "preferred_table": "department",
+      "source_of_evidence": "verified department headcount benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "aliases": [
+        "material",
+        "product",
+        "item",
+        "asset",
+        "stock item"
+      ],
+      "alternative_candidates": [
+        "material_id",
+        "item_code",
+        "submaterialcode"
+      ],
+      "ambiguity_notes": "Use sub_material for display names; transaction tables usually carry sub_material_id.",
+      "applicable_module": "materials",
+      "concept": "material",
+      "confidence": 0.92,
+      "display_column": "sub_material_name",
+      "preferred_column": "sub_material_id",
+      "preferred_table": "sub_material",
+      "source_of_evidence": "verified GRN, inventory and store usage benchmark cases",
+      "verification_status": "verified"
+    }
+  ],
+  "business_definitions_file": "rcerp_business_definitions.json",
+  "business_formulas": [
+    {
+      "alternative_candidates": [
+        "COUNT(*) on project_mst"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "confidence": 0.98,
+      "definition": "COUNT(project_mst.project_id)",
+      "formula": "project_count",
+      "preferred_column": "project_id",
+      "preferred_table": "project_mst",
+      "source_of_evidence": "verified reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "estimated_value"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "confidence": 0.98,
+      "definition": "project_mst.project_value",
+      "formula": "project_value",
+      "preferred_column": "project_value",
+      "preferred_table": "project_mst",
+      "source_of_evidence": "verified reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_items.total_price"
+      ],
+      "ambiguity_notes": "Choose grain based on question wording.",
+      "applicable_module": "purchase_orders",
+      "confidence": 0.82,
+      "definition": "SUM(po_form.total_value) for PO-header questions; SUM(po_items.total_price) for item/material questions",
+      "formula": "purchase_value",
+      "preferred_column": "total_value",
+      "preferred_table": "po_form",
+      "source_of_evidence": "verified reference SQL",
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "No verified cost/expense definition for true profit/loss; do not invent.",
+      "applicable_module": "finance",
+      "confidence": 0.0,
+      "definition": null,
+      "formula": "true_profit_loss",
+      "preferred_column": null,
+      "preferred_table": null,
+      "source_of_evidence": "ground-truth review",
+      "verification_status": "unresolved"
+    },
+    {
+      "alternative_candidates": [
+        "bill_amount"
+      ],
+      "ambiguity_notes": "Default billing value unless bill amount is explicitly requested.",
+      "applicable_module": "billing",
+      "confidence": 0.98,
+      "definition": "SUM(COALESCE(client_bill_raising.gross_bill_value, 0))",
+      "formula": "gross_billing",
+      "preferred_column": "gross_bill_value",
+      "preferred_table": "client_bill_raising",
+      "source_of_evidence": "verified billing benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "gross_bill_value"
+      ],
+      "ambiguity_notes": "Use only for explicit bill amount wording.",
+      "applicable_module": "billing",
+      "confidence": 0.97,
+      "definition": "SUM(COALESCE(client_bill_raising.bill_amount, 0))",
+      "formula": "bill_amount",
+      "preferred_column": "bill_amount",
+      "preferred_table": "client_bill_raising",
+      "source_of_evidence": "verified billing benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "COUNT(*)"
+      ],
+      "ambiguity_notes": "One row per billing header.",
+      "applicable_module": "billing",
+      "confidence": 0.98,
+      "definition": "COUNT(client_bill_raising.billing_id)",
+      "formula": "client_bill_count",
+      "preferred_column": "billing_id",
+      "preferred_table": "client_bill_raising",
+      "source_of_evidence": "verified billing benchmark reference SQL",
+      "verification_status": "verified"
+    }
+  ],
+  "catalog_contract_version": "erp-catalog-contract:v1",
+  "catalog_name": "Verified ERP Semantic Catalog",
+  "catalog_version": "verified-erp-semantic-catalog:v12",
+  "database_id": "rcerp_jul8",
+  "date_fields": [
+    {
+      "alternative_candidates": [
+        "project_end_date"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "column": "project_start_date",
+      "confidence": 0.96,
+      "date_storage_format": "dd-mm-yyyy text",
+      "preferred_column": "project_start_date",
+      "preferred_table": "project_mst",
+      "semantic": "project_start",
+      "source_of_evidence": "verified project benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "when_created"
+      ],
+      "ambiguity_notes": "Use bill_date for billing periods.",
+      "applicable_module": "billing",
+      "column": "bill_date",
+      "confidence": 0.94,
+      "preferred_column": "bill_date",
+      "preferred_table": "client_bill_raising",
+      "semantic": "billing_date",
+      "source_of_evidence": "verified benchmark",
+      "table": "client_bill_raising",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "date_2"
+      ],
+      "ambiguity_notes": "Use po_form.date for created/reporting period questions.",
+      "applicable_module": "purchase_orders",
+      "column": "date",
+      "confidence": 0.98,
+      "preferred_column": "date",
+      "preferred_table": "po_form",
+      "semantic": "purchase_order_date",
+      "source_of_evidence": "verified PO benchmark and live min/max date inspection",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "invoice_date",
+        "date_material_recieved"
+      ],
+      "ambiguity_notes": "Use grn_date for received material periods.",
+      "applicable_module": "grn",
+      "column": "grn_date",
+      "confidence": 0.92,
+      "preferred_column": "grn_date",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "semantic": "grn_date",
+      "source_of_evidence": "verified benchmark",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "actual_issued_date",
+        "created_date"
+      ],
+      "ambiguity_notes": "Use issued_date for material issue/return windows.",
+      "applicable_module": "stores",
+      "column": "issued_date",
+      "confidence": 0.96,
+      "date_storage_format": "dd-mm-yyyy text",
+      "preferred_column": "issued_date",
+      "preferred_table": "store_usage_quantity_master",
+      "semantic": "material_issue_date",
+      "source_of_evidence": "verified store benchmark",
+      "table": "store_usage_quantity_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "when_created"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "attendance",
+      "column": "date",
+      "confidence": 0.9,
+      "preferred_column": "date",
+      "preferred_table": "emp_attendance_register",
+      "semantic": "attendance_date",
+      "source_of_evidence": "verified benchmark",
+      "table": "emp_attendance_register",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "date"
+      ],
+      "ambiguity_notes": "Use only for validity/expiring/ending questions.",
+      "applicable_module": "purchase_orders",
+      "column": "po_validity_date",
+      "confidence": 0.96,
+      "preferred_column": "po_validity_date",
+      "preferred_table": "po_form",
+      "semantic": "purchase_order_validity_date",
+      "source_of_evidence": "verified PO validity benchmark and live date inspection",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "column": "project_end_date",
+      "confidence": 0.96,
+      "date_storage_format": "dd-mm-yyyy text",
+      "semantic": "project_end",
+      "source_of_evidence": "verified project benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    }
+  ],
+  "dimensions": [
+    {
+      "alternative_candidates": [
+        "po_items.po_project_id",
+        "po_form.project"
+      ],
+      "ambiguity_notes": "PO-to-project reports use po_items.po_project_id to project_mst.project_id; use DISTINCT po_id/po_project_id bridge to avoid duplicate headers.",
+      "applicable_module": "projects",
+      "column": "project_name",
+      "confidence": 98,
+      "dimension": "project",
+      "evidence": [
+        "verified PO project benchmark reference SQL"
+      ],
+      "preferred_column": "project_name",
+      "preferred_table": "project_mst",
+      "primary_key_column": "project_id",
+      "semantic_aliases": [
+        "site",
+        "project name",
+        "projects",
+        "site name"
+      ],
+      "source_of_evidence": "verified project master benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "column": "client_name",
+      "confidence": 92,
+      "dimension": "client",
+      "evidence": [
+        "verified benchmark"
+      ],
+      "preferred_column": "client_name",
+      "preferred_table": "project_mst",
+      "semantic_aliases": [
+        "customer",
+        "client name",
+        "party"
+      ],
+      "source_of_evidence": "verified project master benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_form.vendor_name"
+      ],
+      "ambiguity_notes": "Use vendor_mst for vendor master questions; PO compiler uses po_form.vendor_name for purchase summaries.",
+      "applicable_module": "vendors",
+      "column": "vendor_name",
+      "confidence": 98,
+      "dimension": "vendor",
+      "evidence": [
+        "live ERP verification",
+        "vendor module benchmark"
+      ],
+      "preferred_column": "vendor_name",
+      "preferred_table": "vendor_mst",
+      "semantic_aliases": [
+        "supplier",
+        "suppliers",
+        "vendor name",
+        "vendors"
+      ],
+      "source_of_evidence": "vendor_mst verified for lookup/details",
+      "table": "vendor_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "submaterialcode",
+        "item_code"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "column": "sub_material_name",
+      "confidence": 94,
+      "dimension": "material",
+      "evidence": [
+        "verified benchmark"
+      ],
+      "preferred_column": "sub_material_name",
+      "preferred_table": "sub_material",
+      "primary_key_column": "sub_material_id",
+      "semantic_aliases": [
+        "item",
+        "product",
+        "stock item",
+        "material name"
+      ],
+      "source_of_evidence": "verified store/material benchmark",
+      "table": "sub_material",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "departments",
+      "column": "department_name",
+      "confidence": 94,
+      "dimension": "department",
+      "evidence": [
+        "verified benchmark"
+      ],
+      "preferred_column": "department_name",
+      "preferred_table": "department",
+      "semantic_aliases": [
+        "team"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "department",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "emp_ref_id"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "employees",
+      "column": "emp_name",
+      "confidence": 94,
+      "dimension": "employee",
+      "evidence": [
+        "verified benchmark"
+      ],
+      "preferred_column": "emp_name",
+      "preferred_table": "employee_table",
+      "semantic_aliases": [
+        "staff"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "employee_table",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "project_location"
+      ],
+      "ambiguity_notes": "State questions use project_state; site/location detail may require project_location.",
+      "applicable_module": "projects",
+      "column": "project_state",
+      "confidence": 96,
+      "dimension": "location",
+      "evidence": [
+        "verified benchmark",
+        "live distinct values"
+      ],
+      "preferred_column": "project_state",
+      "preferred_table": "project_mst",
+      "semantic_aliases": [
+        "state",
+        "project state",
+        "region"
+      ],
+      "source_of_evidence": "verified project master benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_no",
+        "po_id"
+      ],
+      "ambiguity_notes": "po_form_id is stable; include po_no for display even when null.",
+      "applicable_module": "purchase_orders",
+      "column": "po_form_id",
+      "confidence": 98,
+      "dimension": "purchase_order",
+      "evidence": [
+        "verified PO benchmark",
+        "live row and distinct counts"
+      ],
+      "preferred_column": "po_form_id",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "po",
+        "po number",
+        "po no",
+        "purchase order number",
+        "order"
+      ],
+      "source_of_evidence": "verified PO benchmark and live value verification",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_id",
+        "sub_material_id"
+      ],
+      "ambiguity_notes": "One row represents a purchase-order item/detail line.",
+      "applicable_module": "purchase_orders",
+      "column": "po_item_id",
+      "confidence": 98,
+      "dimension": "purchase_order_item",
+      "preferred_column": "po_item_id",
+      "preferred_table": "po_items",
+      "semantic_aliases": [
+        "po_item",
+        "line_item",
+        "order_item",
+        "po line",
+        "purchase order line",
+        "item"
+      ],
+      "source_of_evidence": "verified PO item benchmark reference SQL and live column verification",
+      "table": "po_items",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "ra_bill_number"
+      ],
+      "ambiguity_notes": "Client bill/bills refers to billing header records in client_bill_raising.",
+      "applicable_module": "billing",
+      "column": "billing_id",
+      "confidence": 98,
+      "dimension": "invoice",
+      "evidence": [
+        "verified benchmark",
+        "billing header grain"
+      ],
+      "preferred_column": "billing_id",
+      "preferred_table": "client_bill_raising",
+      "semantic_aliases": [
+        "bill",
+        "billing record",
+        "billing records",
+        "bills",
+        "client bill",
+        "client bills"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "client_bill_raising",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "invoice_no"
+      ],
+      "ambiguity_notes": "One row represents a GRN detail line.",
+      "applicable_module": "grn",
+      "column": "grcin_id",
+      "confidence": 96,
+      "dimension": "goods_receipt",
+      "preferred_column": "grcin_id",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "semantic_aliases": [
+        "grn"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "boq",
+      "column": "client_bills_boq_wisedetails_id",
+      "confidence": 95,
+      "dimension": "boq_billing_line",
+      "preferred_column": "client_bills_boq_wisedetails_id",
+      "preferred_table": "client_bills_boq_wisedetails",
+      "semantic_aliases": [
+        "boq"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "client_bills_boq_wisedetails",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Only sub_store_id is verified here; no verified store display-name master is available in the POC catalog.",
+      "applicable_module": "inventory",
+      "column": "sub_store_id",
+      "confidence": 82,
+      "dimension": "store",
+      "preferred_column": "sub_store_id",
+      "preferred_table": "inventory_master",
+      "semantic_aliases": [
+        "warehouse",
+        "sub store",
+        "store id",
+        "warehouse id"
+      ],
+      "source_of_evidence": "verified inventory balance schema",
+      "table": "inventory_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "inventory_master.inventory_master_id"
+      ],
+      "ambiguity_notes": "Use transaction table for inventory transaction questions; current stock uses inventory_master.",
+      "applicable_module": "inventory",
+      "column": "inventory_master_transaction_id",
+      "confidence": 95,
+      "dimension": "inventory",
+      "preferred_column": "inventory_master_transaction_id",
+      "preferred_table": "inventory_master_transaction",
+      "semantic_aliases": [
+        "inventory_transaction"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "inventory_master_transaction",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "store_material_usage_quantity.store_usage_quantity_master_id"
+      ],
+      "ambiguity_notes": "Header grain for store/material issue documents; this is not a physical warehouse master.",
+      "applicable_module": "stores",
+      "column": "store_usage_quantity_master_id",
+      "confidence": 95,
+      "dimension": "store_issue",
+      "preferred_column": "store_usage_quantity_master_id",
+      "preferred_table": "store_usage_quantity_master",
+      "semantic_aliases": [
+        "issue slip",
+        "material issue",
+        "store issue",
+        "min",
+        "store",
+        "stores",
+        "store issues"
+      ],
+      "source_of_evidence": "verified store master benchmark",
+      "table": "store_usage_quantity_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "attendance",
+      "column": "employee_attendance_punching_time_id",
+      "confidence": 95,
+      "dimension": "attendance_punch",
+      "preferred_column": "employee_attendance_punching_time_id",
+      "preferred_table": "employee_attendance_punching_time",
+      "semantic_aliases": [
+        "punch_record"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "employee_attendance_punching_time",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "workorder_no"
+      ],
+      "ambiguity_notes": "Manager-facing subcontract workorder header.",
+      "applicable_module": "procurement",
+      "column": "subcontract_workorder_details_id",
+      "confidence": 96,
+      "dimension": "subcontract_workorder",
+      "preferred_column": "subcontract_workorder_details_id",
+      "preferred_table": "subcontract_workorder_details",
+      "semantic_aliases": [
+        "workorder"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "subcontract_workorder_details",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "vendor_id"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "vendors",
+      "column": "vendor_branch_details_id",
+      "confidence": 95,
+      "dimension": "vendor_branch",
+      "preferred_column": "vendor_branch_details_id",
+      "preferred_table": "vendor_branch_details",
+      "semantic_aliases": [],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "vendor_branch_details",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "vendor_id",
+        "sub_material_id"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "vendors",
+      "column": "vendor_material_id",
+      "confidence": 95,
+      "dimension": "vendor_material",
+      "preferred_column": "vendor_material_id",
+      "preferred_table": "vendor_material_details",
+      "semantic_aliases": [],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "vendor_material_details",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "attendance",
+      "column": "emp_attendance_register_id",
+      "confidence": 96,
+      "dimension": "attendance_record",
+      "preferred_column": "emp_attendance_register_id",
+      "preferred_table": "emp_attendance_register",
+      "semantic_aliases": [],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "emp_attendance_register",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "column": "store_material_usage_quantity_id",
+      "confidence": 96,
+      "dimension": "material_issue_line",
+      "preferred_column": "store_material_usage_quantity_id",
+      "preferred_table": "store_material_usage_quantity",
+      "semantic_aliases": [],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "new_bill_status",
+        "finance_status"
+      ],
+      "ambiguity_notes": "Allowed for grouping by numeric status codes. Business labels for codes 0, 2, 3 are not verified.",
+      "applicable_module": "billing",
+      "column": "billing_status",
+      "confidence": 95,
+      "dimension": "billing_status",
+      "preferred_column": "billing_status",
+      "preferred_table": "client_bill_raising",
+      "semantic_aliases": [
+        "status",
+        "bill status",
+        "billing status",
+        "bill statuses"
+      ],
+      "source_of_evidence": "live distinct-value inspection and billing benchmark grouping case",
+      "table": "client_bill_raising",
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [
+        "is_po_item_status"
+      ],
+      "ambiguity_notes": "Benchmark groups PO item numeric status. Text open/close semantics are held in is_po_item_status.",
+      "applicable_module": "purchase_orders",
+      "column": "status",
+      "confidence": 94,
+      "dimension": "purchase_order_status",
+      "preferred_column": "status",
+      "preferred_table": "po_items",
+      "semantic_aliases": [
+        "status",
+        "po item status",
+        "purchase order status",
+        "item status"
+      ],
+      "source_of_evidence": "verified PO item status benchmark reference SQL and live distinct-value inspection",
+      "table": "po_items",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_validity_date"
+      ],
+      "ambiguity_notes": "Use po_form.date for PO creation/reporting periods.",
+      "applicable_module": "purchase_orders",
+      "column": "date",
+      "confidence": 94,
+      "dimension": "month",
+      "preferred_column": "date",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "monthly",
+        "month wise",
+        "by month"
+      ],
+      "source_of_evidence": "verified PO year/FY benchmark reference SQL",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Numeric status values are groupable; business meaning labels are not fully verified.",
+      "applicable_module": "projects",
+      "column": "status",
+      "confidence": 86,
+      "dimension": "project_status",
+      "semantic_aliases": [
+        "status",
+        "project status"
+      ],
+      "source_of_evidence": "schema and benchmark grouping only",
+      "table": "project_mst",
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "column": "transactiontype",
+      "confidence": 90,
+      "dimension": "transaction_type",
+      "semantic_aliases": [
+        "transaction type",
+        "movement type",
+        "issue type"
+      ],
+      "source_of_evidence": "verified store master benchmark",
+      "table": "store_usage_quantity_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "vendor_mst.vendor_name"
+      ],
+      "ambiguity_notes": "PO purchase summaries group denormalized PO vendor names to avoid unsafe joins.",
+      "applicable_module": "purchase_orders",
+      "column": "vendor_name",
+      "confidence": 96,
+      "dimension": "vendor",
+      "preferred_column": "vendor_name",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "vendor",
+        "vendors",
+        "supplier",
+        "suppliers"
+      ],
+      "source_of_evidence": "verified PO benchmark",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "vendor_mst.vendor_state"
+      ],
+      "ambiguity_notes": "vendor_mst.vendor_state is empty in this dump; use branch state.",
+      "applicable_module": "vendors",
+      "column": "state",
+      "confidence": 92,
+      "dimension": "state",
+      "preferred_column": "state",
+      "preferred_table": "vendor_branch_details",
+      "semantic_aliases": [
+        "state",
+        "states",
+        "vendor state",
+        "location"
+      ],
+      "source_of_evidence": "live ERP vendor branch verification",
+      "table": "vendor_branch_details",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "vendor_mst.vendor_types_id"
+      ],
+      "ambiguity_notes": "Used only for MSME/NON MSME category grouping.",
+      "applicable_module": "vendors",
+      "column": "vendor_type",
+      "confidence": 90,
+      "dimension": "vendor_category",
+      "preferred_column": "vendor_type",
+      "preferred_table": "vendor_types",
+      "semantic_aliases": [
+        "category",
+        "vendor category",
+        "type",
+        "vendor type",
+        "msme"
+      ],
+      "source_of_evidence": "live ERP vendor type verification",
+      "table": "vendor_types",
+      "verification_status": "verified"
+    }
+  ],
+  "duplicate_risk_warnings": [
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "billing",
+      "confidence": 0.86,
+      "preferred_column": "billing_id",
+      "preferred_table": "client_bill_raising",
+      "relationship": "client_bill_raising -> client_bills_boq_wisedetails",
+      "source_of_evidence": "ground-truth review",
+      "verification_status": "verified",
+      "warning": "Billing header totals can be duplicated when joined to BOQ details before aggregation."
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "purchase_orders",
+      "confidence": 0.82,
+      "preferred_column": "po_id",
+      "preferred_table": "po_form",
+      "relationship": "po_form -> po_items",
+      "source_of_evidence": "ground-truth review",
+      "verification_status": "verified",
+      "warning": "PO header totals can be duplicated when joined to item rows before aggregation."
+    }
+  ],
+  "entity_types": [
+    {
+      "alternative_candidates": [
+        "project_mst.name_of_work"
+      ],
+      "ambiguity_notes": "project_name is the default manager-facing label.",
+      "applicable_module": "projects",
+      "confidence": 0.98,
+      "display_columns": [
+        "project_mst.project_name",
+        "project_mst.project_short_name"
+      ],
+      "entity_type": "project",
+      "identifier_columns": [
+        "project_mst.project_id"
+      ],
+      "master_tables": [
+        "project_mst"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "site_vendor_mst.vendor_name",
+        "grn_master.vendor_name"
+      ],
+      "ambiguity_notes": "Vendor names may be denormalized in PO rows; details come from vendor_mst.",
+      "applicable_module": "vendors",
+      "confidence": 0.98,
+      "display_columns": [
+        "vendor_mst.vendor_name",
+        "po_form.vendor_name"
+      ],
+      "entity_type": "vendor",
+      "identifier_columns": [
+        "vendor_mst.vendor_id",
+        "vendor_mst.vendor_code"
+      ],
+      "master_tables": [
+        "vendor_mst"
+      ],
+      "source_of_evidence": "live ERP verification: vendor_mst populated and 253/255 PO vendor names overlap",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Use only inside verified vendor branch questions; project location remains a separate dimension.",
+      "applicable_module": "vendors",
+      "confidence": 0.9,
+      "display_columns": [
+        "vendor_branch_details.state",
+        "vendor_branch_details.country"
+      ],
+      "entity_type": "location",
+      "identifier_columns": [],
+      "master_tables": [
+        "vendor_branch_details"
+      ],
+      "source_of_evidence": "live ERP vendor branch verification",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Use for MSME/NON MSME vendor category filters.",
+      "applicable_module": "vendors",
+      "confidence": 0.95,
+      "display_columns": [
+        "vendor_types.vendor_type"
+      ],
+      "entity_type": "vendor_category",
+      "identifier_columns": [
+        "vendor_types.vendor_types_id"
+      ],
+      "master_tables": [
+        "vendor_types"
+      ],
+      "source_of_evidence": "live ERP vendor type verification",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_form.end_customers"
+      ],
+      "ambiguity_notes": "Client names are stored on the project master for verified reporting paths.",
+      "applicable_module": "clients",
+      "confidence": 0.9,
+      "display_columns": [
+        "project_mst.client_name"
+      ],
+      "entity_type": "client",
+      "identifier_columns": [],
+      "master_tables": [
+        "project_mst"
+      ],
+      "source_of_evidence": "verified project and billing benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Transaction tables reference sub_material_id.",
+      "applicable_module": "materials",
+      "confidence": 0.94,
+      "display_columns": [
+        "sub_material.sub_material_name",
+        "sub_material.submaterialcode",
+        "sub_material.item_code"
+      ],
+      "entity_type": "material",
+      "identifier_columns": [
+        "sub_material.sub_material_id"
+      ],
+      "master_tables": [
+        "sub_material"
+      ],
+      "source_of_evidence": "verified GRN, inventory and store benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "employees",
+      "confidence": 0.96,
+      "display_columns": [
+        "employee_table.emp_name"
+      ],
+      "entity_type": "employee",
+      "identifier_columns": [
+        "employee_table.employee_id",
+        "employee_table.emp_ref_id"
+      ],
+      "master_tables": [
+        "employee_table"
+      ],
+      "source_of_evidence": "verified employee and attendance benchmark cases",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "departments",
+      "confidence": 0.95,
+      "display_columns": [
+        "department.department_name"
+      ],
+      "entity_type": "department",
+      "identifier_columns": [
+        "department.department_id"
+      ],
+      "master_tables": [
+        "department"
+      ],
+      "source_of_evidence": "verified department headcount benchmark cases",
+      "verification_status": "verified"
+    }
+  ],
+  "erp_product": "RC ERP",
+  "erp_schema_version": "rcerp-jul8:v1",
+  "excluded_from_retrieval": [
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Exclude unless the user explicitly asks for audit, history, logs, or attachments.",
+      "applicable_module": "all",
+      "confidence": 0.8,
+      "pattern": "history/archive/log/attachment/temp tables",
+      "preferred_column": null,
+      "preferred_table": null,
+      "source_of_evidence": "ERP discovery report",
+      "verification_status": "verified"
+    }
+  ],
+  "fallback_policy": "offline_discovery_only",
+  "important_tables": [
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "projects",
+      "columns": [
+        "project_id",
+        "project_name",
+        "project_value",
+        "client_name",
+        "status",
+        "project_start_date",
+        "project_end_date"
+      ],
+      "confidence": 0.98,
+      "row_count": 19,
+      "score": 100,
+      "source_of_evidence": "verified benchmark",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "client_bills_boq_wisedetails"
+      ],
+      "ambiguity_notes": "Header grain is billing_id.",
+      "applicable_module": "billing",
+      "columns": [
+        "billing_id",
+        "project_id",
+        "bill_date",
+        "bill_amount",
+        "gross_bill_value",
+        "total_amount",
+        "billing_status"
+      ],
+      "confidence": 0.94,
+      "score": 96,
+      "source_of_evidence": "verified benchmark",
+      "table": "client_bill_raising",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Detail grain can multiply header rows.",
+      "applicable_module": "billing",
+      "columns": [
+        "billing_id",
+        "boq_total_amount",
+        "boq_rasing_amount",
+        "raising_qty",
+        "client_unit_rate",
+        "project_locations_id",
+        "locationwise_amt"
+      ],
+      "confidence": 0.82,
+      "score": 88,
+      "source_of_evidence": "verified benchmark",
+      "table": "client_bills_boq_wisedetails",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_items",
+        "po_final_price"
+      ],
+      "ambiguity_notes": "Header grain is po_form_id.",
+      "applicable_module": "purchase_orders",
+      "columns": [
+        "po_form_id",
+        "po_no",
+        "date",
+        "project",
+        "po_id",
+        "vendor_name",
+        "sub_total",
+        "total_value"
+      ],
+      "confidence": 0.9,
+      "score": 94,
+      "source_of_evidence": "verified benchmark",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_final_price"
+      ],
+      "ambiguity_notes": "Line grain can multiply PO headers.",
+      "applicable_module": "purchase_orders",
+      "columns": [
+        "po_item_id",
+        "po_id",
+        "material_id",
+        "sub_material_id",
+        "qty",
+        "total_price",
+        "item_unit_price",
+        "po_project_id"
+      ],
+      "confidence": 0.88,
+      "score": 90,
+      "source_of_evidence": "verified benchmark",
+      "table": "po_items",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "grn_master"
+      ],
+      "ambiguity_notes": "Use detail table for received quantities and values.",
+      "applicable_module": "grn",
+      "columns": [
+        "grcin_id",
+        "grn_po_id",
+        "grn_project_id",
+        "grn_sub_material_id",
+        "qty_actual_received",
+        "value",
+        "grn_date",
+        "base_price",
+        "supplier_return_qty"
+      ],
+      "confidence": 0.9,
+      "score": 90,
+      "source_of_evidence": "verified benchmark",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "store_material_usage_quantity"
+      ],
+      "ambiguity_notes": "Header for material issue/return documents.",
+      "applicable_module": "stores",
+      "columns": [
+        "store_usage_quantity_master_id",
+        "project_id",
+        "store_id",
+        "issued_date",
+        "actual_issued_date",
+        "transactiontype"
+      ],
+      "confidence": 0.88,
+      "score": 88,
+      "source_of_evidence": "verified benchmark",
+      "table": "store_usage_quantity_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Detail table for issued quantities and material pricing.",
+      "applicable_module": "stores",
+      "columns": [
+        "store_usage_quantity_master_id",
+        "sub_material_id",
+        "requested_quantity",
+        "issued_quantity",
+        "base_charge",
+        "transactiontype"
+      ],
+      "confidence": 0.88,
+      "score": 88,
+      "source_of_evidence": "verified benchmark",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "inventory_master_transaction"
+      ],
+      "ambiguity_notes": "Column total_quanity is misspelled in source schema.",
+      "applicable_module": "inventory",
+      "columns": [
+        "inventory_master_id",
+        "sub_store_id",
+        "material_id",
+        "sub_material_id",
+        "total_quanity",
+        "available_quantity",
+        "status"
+      ],
+      "confidence": 0.82,
+      "score": 84,
+      "source_of_evidence": "verified benchmark",
+      "table": "inventory_master",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "employees",
+      "columns": [
+        "employee_id",
+        "emp_ref_id",
+        "emp_name",
+        "department_id",
+        "project_id",
+        "emp_status",
+        "date_of_joining",
+        "sal_ctc"
+      ],
+      "confidence": 0.94,
+      "score": 92,
+      "source_of_evidence": "verified benchmark",
+      "table": "employee_table",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "departments",
+      "columns": [
+        "department_id",
+        "department_name",
+        "division_id"
+      ],
+      "confidence": 0.93,
+      "score": 88,
+      "source_of_evidence": "verified benchmark",
+      "table": "department",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Attendance spelling is source-specific: attendence_type_name.",
+      "applicable_module": "attendance",
+      "columns": [
+        "emp_attendance_register_id",
+        "project_id",
+        "project_sites_id",
+        "employee_id",
+        "date",
+        "attendence_type_name",
+        "approval_status"
+      ],
+      "confidence": 0.82,
+      "score": 84,
+      "source_of_evidence": "verified benchmark",
+      "table": "emp_attendance_register",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "site_vendor_mst",
+        "service_vendors",
+        "asset_vendor"
+      ],
+      "ambiguity_notes": "Primary verified vendor master for vendor lookup/details/counts in the POC.",
+      "applicable_module": "vendors",
+      "columns": [
+        "vendor_id",
+        "vendor_code",
+        "vendor_name",
+        "vendor_address",
+        "email",
+        "contact_no",
+        "contact_person_name",
+        "vendor_gst_no",
+        "vendor_types_id"
+      ],
+      "confidence": 0.98,
+      "score": 95,
+      "source_of_evidence": "live ERP verification and vendor module benchmark",
+      "table": "vendor_mst",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "site_vendor_bank_details"
+      ],
+      "ambiguity_notes": "Use for verified vendor state/contact branch reporting only.",
+      "applicable_module": "vendors",
+      "columns": [
+        "vendor_branch_details_id",
+        "vendor_id",
+        "address",
+        "gst_no",
+        "email",
+        "contact_person",
+        "contact_number",
+        "state",
+        "country",
+        "gst_type"
+      ],
+      "confidence": 0.92,
+      "score": 88,
+      "source_of_evidence": "live ERP verification and vendor module benchmark",
+      "table": "vendor_branch_details",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Use for MSME/NON MSME vendor category reporting.",
+      "applicable_module": "vendors",
+      "columns": [
+        "vendor_types_id",
+        "vendor_type",
+        "vendor_description"
+      ],
+      "confidence": 0.9,
+      "score": 82,
+      "source_of_evidence": "live ERP verification and vendor module benchmark",
+      "table": "vendor_types",
+      "verification_status": "verified"
+    }
+  ],
+  "join_paths": [
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "billing",
+      "cardinality": "many_to_one",
+      "confidence": "high",
+      "confidence_score": 92,
+      "duplicate_risk": "low for summing billing by project",
+      "left_column": "project_id",
+      "left_table": "client_bill_raising",
+      "preferred_column": "project_id",
+      "preferred_table": "client_bill_raising",
+      "relationship_type": "many_to_one",
+      "right_column": "project_id",
+      "right_table": "project_mst",
+      "runtime_approved": true,
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "May duplicate billing header totals if joined before aggregation.",
+      "applicable_module": "billing",
+      "cardinality": "many BOQ detail rows to one billing header",
+      "confidence": "medium",
+      "left_column": "billing_id",
+      "left_table": "client_bills_boq_wisedetails",
+      "preferred_column": "billing_id",
+      "preferred_table": "client_bills_boq_wisedetails",
+      "relationship_type": "many_to_one",
+      "right_column": "billing_id",
+      "right_table": "client_bill_raising",
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_form.po_form_id"
+      ],
+      "ambiguity_notes": "Use only at correct grain; detail reports use po_items values.",
+      "applicable_module": "purchase_orders",
+      "cardinality": "many PO item rows to one PO header",
+      "confidence": "high",
+      "confidence_score": 90,
+      "duplicate_amplification_risk": "PO header totals repeat across item rows when po_form joins raw po_items.",
+      "left_column": "po_id",
+      "left_table": "po_items",
+      "pre_aggregation_requirements": [
+        "For project-level PO header value, first select DISTINCT po_id, po_project_id from po_items before joining po_form.",
+        "Never SUM(po_form.total_value) after joining raw po_items."
+      ],
+      "preferred_column": "po_id",
+      "preferred_table": "po_items",
+      "relationship_type": "many_to_one",
+      "required_pre_aggregation": true,
+      "right_column": "po_id",
+      "right_table": "po_form",
+      "runtime_approved": true,
+      "source_of_evidence": "verified PO benchmark reference SQL and live distinct overlap",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "po_form.project"
+      ],
+      "ambiguity_notes": "po_form.project is denormalized and not preferred for verified joins.",
+      "applicable_module": "purchase_orders",
+      "cardinality": "many PO item rows to one project",
+      "confidence": "high",
+      "confidence_score": 90,
+      "duplicate_amplification_risk": "Joining PO lines to project is safe for line metrics; header totals need distinct PO bridge before joining project.",
+      "left_column": "po_project_id",
+      "left_table": "po_items",
+      "pre_aggregation_requirements": [
+        "Use DISTINCT po_id, po_project_id bridge before joining po_form for header PO totals by project."
+      ],
+      "preferred_column": "po_project_id",
+      "preferred_table": "po_items",
+      "relationship_type": "many_to_one",
+      "required_pre_aggregation": false,
+      "right_column": "project_id",
+      "right_table": "project_mst",
+      "runtime_approved": true,
+      "source_of_evidence": "verified PO benchmark reference SQL and live key overlap",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "grn_master.grn_project_id"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "grn",
+      "cardinality": "many GRN detail rows to one project",
+      "confidence": "high",
+      "left_column": "grn_project_id",
+      "left_table": "goods_receipt_cum_insp_note",
+      "preferred_column": "grn_project_id",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "relationship_type": "many_to_one",
+      "right_column": "project_id",
+      "right_table": "project_mst",
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "grn_material_id"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "grn",
+      "cardinality": "many GRN rows to one material",
+      "confidence": "high",
+      "left_column": "grn_sub_material_id",
+      "left_table": "goods_receipt_cum_insp_note",
+      "preferred_column": "grn_sub_material_id",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "relationship_type": "many_to_one",
+      "right_column": "sub_material_id",
+      "right_table": "sub_material",
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "cardinality": "many_to_one",
+      "confidence": "high",
+      "confidence_score": 94,
+      "duplicate_risk": "low",
+      "left_column": "store_usage_quantity_master_id",
+      "left_table": "store_material_usage_quantity",
+      "preferred_column": "store_usage_quantity_master_id",
+      "preferred_table": "store_material_usage_quantity",
+      "relationship_type": "many_to_one",
+      "right_column": "store_usage_quantity_master_id",
+      "right_table": "store_usage_quantity_master",
+      "runtime_approved": true,
+      "source_of_evidence": "key overlap and benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "cardinality": "many_to_one",
+      "confidence": "high",
+      "confidence_score": 92,
+      "duplicate_risk": "low",
+      "left_column": "project_id",
+      "left_table": "store_usage_quantity_master",
+      "preferred_column": "project_id",
+      "preferred_table": "store_usage_quantity_master",
+      "relationship_type": "many_to_one",
+      "right_column": "project_id",
+      "right_table": "project_mst",
+      "runtime_approved": true,
+      "source_of_evidence": "key overlap and benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "cardinality": "many_to_one",
+      "confidence": "high",
+      "confidence_score": 92,
+      "duplicate_risk": "low",
+      "left_column": "sub_material_id",
+      "left_table": "store_material_usage_quantity",
+      "preferred_column": "sub_material_id",
+      "preferred_table": "store_material_usage_quantity",
+      "relationship_type": "many_to_one",
+      "right_column": "sub_material_id",
+      "right_table": "sub_material",
+      "runtime_approved": true,
+      "source_of_evidence": "key overlap and benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "employees",
+      "cardinality": "many employees to one department",
+      "confidence": "high",
+      "left_column": "department_id",
+      "left_table": "employee_table",
+      "preferred_column": "department_id",
+      "preferred_table": "employee_table",
+      "relationship_type": "many_to_one",
+      "right_column": "department_id",
+      "right_table": "department",
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "attendance",
+      "cardinality": "many attendance rows to one employee",
+      "confidence": "high",
+      "left_column": "employee_id",
+      "left_table": "emp_attendance_register",
+      "preferred_column": "employee_id",
+      "preferred_table": "emp_attendance_register",
+      "relationship_type": "many_to_one",
+      "right_column": "employee_id",
+      "right_table": "employee_table",
+      "source_of_evidence": "verified benchmark reference SQL",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "material_id"
+      ],
+      "ambiguity_notes": "Verified on the current ERP dataset.",
+      "applicable_module": "inventory",
+      "cardinality": "many inventory balance rows to one material",
+      "confidence": "high",
+      "left_column": "sub_material_id",
+      "left_table": "inventory_master",
+      "preferred_column": "sub_material_id",
+      "preferred_table": "inventory_master",
+      "relationship_type": "many_to_one",
+      "right_column": "sub_material_id",
+      "right_table": "sub_material",
+      "source_of_evidence": "live overlap verification: 2144 of 2144 rows matched",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "workorder",
+      "alternative_candidates": [],
+      "ambiguity_notes": "Use only for subcontract workorder value questions; do not use for Project Master value.",
+      "applicable_business_modules": [
+        "projects",
+        "procurement",
+        "workorders"
+      ],
+      "applicable_module": "projects",
+      "cardinality": "many_to_one",
+      "confidence": "high",
+      "confidence_score": 92,
+      "duplicate_risk": "low for summing workorder detail values by project",
+      "evidence": [
+        "reference SQL joins subcontract_workorder_details.project_id to project_mst.project_id"
+      ],
+      "evidence_sources": [
+        "verified benchmark reference SQL for subcontract workorder value by project",
+        "live schema key names project_id"
+      ],
+      "left_column": "project_id",
+      "left_table": "subcontract_workorder_details",
+      "right_column": "project_id",
+      "right_table": "project_mst",
+      "runtime_approved": true,
+      "source_of_evidence": "verified benchmark reference SQL for subcontract workorder value by project",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Branch rows can duplicate vendors.",
+      "applicable_module": "vendors",
+      "cardinality": "many branches to one vendor",
+      "confidence": 96,
+      "duplicate_amplification_risk": "medium",
+      "left_column": "vendor_id",
+      "left_table": "vendor_branch_details",
+      "relationship_type": "many_to_one",
+      "required_pre_aggregation": "count distinct vendor_id for vendor-level branch summaries",
+      "right_column": "vendor_id",
+      "right_table": "vendor_mst",
+      "runtime_approved": true,
+      "source_of_evidence": "live ERP key overlap",
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "Vendor type is a lookup table.",
+      "applicable_module": "vendors",
+      "cardinality": "many vendors to one vendor type",
+      "confidence": 94,
+      "duplicate_amplification_risk": "low",
+      "left_column": "vendor_types_id",
+      "left_table": "vendor_mst",
+      "relationship_type": "many_to_one",
+      "required_pre_aggregation": "none for vendor counts",
+      "right_column": "vendor_types_id",
+      "right_table": "vendor_types",
+      "runtime_approved": true,
+      "source_of_evidence": "live ERP key overlap",
+      "verification_status": "verified"
+    }
+  ],
+  "metrics": [
+    {
+      "aggregation_grain": "project",
+      "alternative_candidates": [
+        "estimated_value",
+        "compeny_project_value"
+      ],
+      "ambiguity_notes": "Use project_value for manager-facing project value ranking.",
+      "applicable_module": "projects",
+      "column": "project_value",
+      "compatible_dimensions": [
+        "project",
+        "client",
+        "location",
+        "state",
+        "project_status",
+        "month"
+      ],
+      "confidence": 98,
+      "default_aggregation": "sum",
+      "duplicate_risk": "single-row project grain; do not join transaction details for project master value",
+      "evidence": [
+        "verified benchmark",
+        "amount-like column"
+      ],
+      "metric": "project_value",
+      "null_handling": "blank strings are cast to NULL before numeric aggregation",
+      "preferred_column": "project_value",
+      "preferred_table": "project_mst",
+      "semantic_aliases": [
+        "project amount",
+        "project cost",
+        "contract value",
+        "contract amount",
+        "agreement value",
+        "estimated project value",
+        "order value",
+        "project budget",
+        "project commercial value",
+        "project size",
+        "project worth",
+        "site value",
+        "value of project",
+        "work order value",
+        "work value"
+      ],
+      "source_of_evidence": "verified project benchmark and project_mst schema",
+      "table": "project_mst",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "billing_header",
+      "alternative_candidates": [
+        "bill_amount",
+        "total_amount"
+      ],
+      "ambiguity_notes": "Default manager-facing billing metric. Use bill_amount only when the question explicitly asks for bill amount.",
+      "applicable_module": "billing",
+      "column": "gross_bill_value",
+      "compatible_dimensions": [
+        "project",
+        "client"
+      ],
+      "confidence": 98,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark",
+        "populated ERP data"
+      ],
+      "metric": "billing",
+      "preferred_column": "gross_bill_value",
+      "preferred_table": "client_bill_raising",
+      "semantic_aliases": [
+        "amount_value",
+        "bill value",
+        "billing value",
+        "billed amount",
+        "billed value",
+        "bills raised",
+        "client bill value",
+        "client billing",
+        "client billing revenue",
+        "customer billing",
+        "customer invoice value",
+        "gross bill amount",
+        "gross billing",
+        "invoice amount",
+        "invoice value",
+        "raised bill value",
+        "revenue booked",
+        "sales billing"
+      ],
+      "source_of_evidence": "verified benchmark and live value verification",
+      "table": "client_bill_raising",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "billing_header",
+      "alternative_candidates": [
+        "gross_bill_value",
+        "total_amount"
+      ],
+      "ambiguity_notes": "Use when the question explicitly asks for bill amount.",
+      "applicable_module": "billing",
+      "column": "bill_amount",
+      "compatible_dimensions": [
+        "project",
+        "client"
+      ],
+      "confidence": 97,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark",
+        "populated ERP data"
+      ],
+      "metric": "billing",
+      "preferred_column": "bill_amount",
+      "preferred_table": "client_bill_raising",
+      "semantic_aliases": [
+        "base bill amount",
+        "bill amount",
+        "actual bill amount",
+        "net bill amount",
+        "ra bill amount",
+        "running bill amount",
+        "total bill amount"
+      ],
+      "source_of_evidence": "verified benchmark and live value verification",
+      "table": "client_bill_raising",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "purchase_order_header",
+      "alternative_candidates": [
+        "po_form.sub_total",
+        "po_items.total_price"
+      ],
+      "ambiguity_notes": "Default PO value metric. Use po_items.total_price only for item/material line-value questions. Never sum after raw po_items join.",
+      "applicable_module": "purchase_orders",
+      "column": "total_value",
+      "compatible_dimensions": [
+        "vendor",
+        "project",
+        "month",
+        "year",
+        "purchase_order"
+      ],
+      "confidence": 98,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark reference SQL",
+        "live ERP header counts"
+      ],
+      "metric": "purchase_value",
+      "preferred_column": "total_value",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "amount_value",
+        "buying cost",
+        "buying value",
+        "highest procurement vendor",
+        "money spent on suppliers",
+        "money spent on vendors",
+        "order amount",
+        "ordered value",
+        "purchase order total",
+        "po total",
+        "po value",
+        "procurement spend",
+        "procurement value",
+        "purchase amount",
+        "purchase order value",
+        "purchase spend",
+        "supplier purchase value",
+        "supplier spend",
+        "top procurement vendor",
+        "total po value",
+        "total purchase value",
+        "vendor purchase value",
+        "vendor spend"
+      ],
+      "source_of_evidence": "verified PO benchmark and live ERP verification",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "purchase_order_line",
+      "alternative_candidates": [
+        "po_final_price.qty"
+      ],
+      "ambiguity_notes": "Line-item quantity from po_items.qty.",
+      "applicable_module": "purchase_orders",
+      "column": "qty",
+      "compatible_dimensions": [
+        "purchase_order_item",
+        "purchase_order",
+        "project",
+        "status",
+        "material"
+      ],
+      "confidence": 96,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark",
+        "live ERP line totals"
+      ],
+      "metric": "ordered_quantity",
+      "preferred_column": "qty",
+      "preferred_table": "po_items",
+      "semantic_aliases": [
+        "quantity",
+        "po item quantity",
+        "purchase order item quantity",
+        "ordered quantity",
+        "po quantity",
+        "item quantity"
+      ],
+      "source_of_evidence": "verified PO item benchmark and live ERP verification",
+      "table": "po_items",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "grn_line",
+      "alternative_candidates": [
+        "qty_as_per_invoice",
+        "rec_qnty_per_invoice"
+      ],
+      "ambiguity_notes": "Use actual received quantity when asking received material.",
+      "applicable_module": "grn",
+      "column": "qty_actual_received",
+      "compatible_dimensions": [
+        "project",
+        "vendor",
+        "material"
+      ],
+      "confidence": 94,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark",
+        "GRN detail"
+      ],
+      "metric": "received_quantity",
+      "preferred_column": "qty_actual_received",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "semantic_aliases": [
+        "material_receipts"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [
+        "requested_quantity"
+      ],
+      "ambiguity_notes": "Join to store_usage_quantity_master for project/date filters.",
+      "applicable_module": "stores",
+      "column": "issued_quantity",
+      "compatible_dimensions": [
+        "project",
+        "material",
+        "store_issue",
+        "transaction_type",
+        "month"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "duplicate_risk": "line-grain metric; safe with one header and one material lookup join",
+      "evidence": [
+        "verified benchmark",
+        "store issue detail"
+      ],
+      "metric": "material_consumption",
+      "preferred_column": "issued_quantity",
+      "preferred_table": "store_material_usage_quantity",
+      "semantic_aliases": [
+        "consumption quantity",
+        "issued quantity",
+        "issued material quantity",
+        "material consumption",
+        "material issue",
+        "material issued quantity",
+        "material issued",
+        "material outflow",
+        "material used",
+        "material usage",
+        "materials consumed",
+        "materials used",
+        "site consumption",
+        "store issue quantity",
+        "usage quantity",
+        "consumed quantity"
+      ],
+      "source_of_evidence": "verified store movement benchmark and store usage schema",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [
+        "goods_receipt_cum_insp_note.base_price",
+        "po_items.item_unit_price"
+      ],
+      "ambiguity_notes": "Price basis depends on transaction flow.",
+      "applicable_module": "stores",
+      "column": "base_charge",
+      "compatible_dimensions": [
+        "material",
+        "project"
+      ],
+      "confidence": 86,
+      "default_aggregation": "average",
+      "evidence": [
+        "verified benchmark",
+        "pricing in material issue detail"
+      ],
+      "metric": "material_price",
+      "preferred_column": "base_charge",
+      "preferred_table": "store_material_usage_quantity",
+      "semantic_aliases": [
+        "rate"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "inventory_balance",
+      "alternative_candidates": [
+        "total_quanity"
+      ],
+      "ambiguity_notes": "total_quanity is source misspelling for total quantity.",
+      "applicable_module": "inventory",
+      "column": "available_quantity",
+      "compatible_dimensions": [
+        "material",
+        "store",
+        "warehouse"
+      ],
+      "confidence": 88,
+      "default_aggregation": "sum",
+      "evidence": [
+        "verified benchmark",
+        "stock master"
+      ],
+      "metric": "current_stock",
+      "preferred_column": "available_quantity",
+      "preferred_table": "inventory_master",
+      "semantic_aliases": [
+        "stock",
+        "current stock",
+        "available inventory",
+        "available material",
+        "available quantity",
+        "available stock",
+        "closing stock",
+        "inventory balance",
+        "inventory quantity",
+        "material balance",
+        "materials in stock",
+        "negative stock",
+        "on hand quantity",
+        "out of stock",
+        "stock balance",
+        "stock on hand",
+        "stock quantity",
+        "stocked materials",
+        "zero stock"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "inventory_master",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "employee",
+      "alternative_candidates": [
+        "emp_ref_id"
+      ],
+      "ambiguity_notes": "Use count of employee_id.",
+      "applicable_module": "employees",
+      "column": "employee_id",
+      "compatible_dimensions": [
+        "department",
+        "project"
+      ],
+      "confidence": 94,
+      "default_aggregation": "distinct_count",
+      "evidence": [
+        "verified benchmark"
+      ],
+      "metric": "employee_count",
+      "preferred_column": "employee_id",
+      "preferred_table": "employee_table",
+      "semantic_aliases": [
+        "headcount"
+      ],
+      "source_of_evidence": "verified benchmark",
+      "table": "employee_table",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "attendance_record",
+      "alternative_candidates": [],
+      "ambiguity_notes": "Counts attendance register rows; attendance-type labels require separate verification.",
+      "applicable_module": "attendance",
+      "column": "emp_attendance_register_id",
+      "compatible_dimensions": [
+        "employee",
+        "project"
+      ],
+      "confidence": 94,
+      "default_aggregation": "count",
+      "evidence": [
+        "verified benchmark",
+        "live row inspection"
+      ],
+      "metric": "attendance",
+      "preferred_column": "emp_attendance_register_id",
+      "preferred_table": "emp_attendance_register",
+      "semantic_aliases": [
+        "attendance_count"
+      ],
+      "source_of_evidence": "verified benchmark and live value verification",
+      "table": "emp_attendance_register",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "grn_line",
+      "alternative_candidates": [
+        "base_price"
+      ],
+      "ambiguity_notes": "Use value for GRN value questions.",
+      "applicable_module": "grn",
+      "column": "value",
+      "compatible_dimensions": [
+        "goods_receipt",
+        "project",
+        "vendor"
+      ],
+      "confidence": 96,
+      "default_aggregation": "sum",
+      "metric": "grn_value",
+      "preferred_column": "value",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "semantic_aliases": [
+        "amount_value"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "grn_line",
+      "alternative_candidates": [
+        "damage"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "grn",
+      "column": "shortage",
+      "compatible_dimensions": [
+        "goods_receipt",
+        "material",
+        "project"
+      ],
+      "confidence": 96,
+      "default_aggregation": "sum",
+      "metric": "grn_shortage",
+      "preferred_column": "shortage",
+      "preferred_table": "goods_receipt_cum_insp_note",
+      "semantic_aliases": [],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "goods_receipt_cum_insp_note",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "boq_billing_line",
+      "alternative_candidates": [
+        "boq_rasing_amount"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "boq",
+      "column": "boq_total_amount",
+      "compatible_dimensions": [
+        "boq_billing_line",
+        "project"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "metric": "boq_total",
+      "preferred_column": "boq_total_amount",
+      "preferred_table": "client_bills_boq_wisedetails",
+      "semantic_aliases": [
+        "amount_value"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "client_bills_boq_wisedetails",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "boq_billing_line",
+      "alternative_candidates": [
+        "boq_total_amount"
+      ],
+      "ambiguity_notes": "Source column spelling is boq_rasing_amount.",
+      "applicable_module": "boq",
+      "column": "boq_rasing_amount",
+      "compatible_dimensions": [
+        "boq_billing_line",
+        "project"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "metric": "boq_raising",
+      "preferred_column": "boq_rasing_amount",
+      "preferred_table": "client_bills_boq_wisedetails",
+      "semantic_aliases": [
+        "amount_value"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "client_bills_boq_wisedetails",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "purchase_order_header",
+      "alternative_candidates": [
+        "po_form.total_value"
+      ],
+      "ambiguity_notes": "Use only when subtotal is explicitly requested.",
+      "applicable_module": "purchase_orders",
+      "column": "sub_total",
+      "compatible_dimensions": [
+        "purchase_order",
+        "vendor",
+        "month",
+        "year"
+      ],
+      "confidence": 98,
+      "default_aggregation": "sum",
+      "metric": "purchase_order_subtotal",
+      "preferred_column": "sub_total",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "subtotal",
+        "po subtotal",
+        "purchase order subtotal",
+        "sub total"
+      ],
+      "source_of_evidence": "verified PO benchmark reference SQL and live ERP verification",
+      "table": "po_form",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [
+        "issued_quantity"
+      ],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "column": "requested_quantity",
+      "compatible_dimensions": [
+        "project",
+        "material",
+        "store_issue",
+        "transaction_type",
+        "month"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "metric": "requested_quantity",
+      "preferred_column": "requested_quantity",
+      "preferred_table": "store_material_usage_quantity",
+      "semantic_aliases": [
+        "demand quantity",
+        "indent quantity",
+        "material request quantity",
+        "requested material",
+        "material requested",
+        "requested quantity",
+        "requested qty"
+      ],
+      "source_of_evidence": "verified store movement benchmark and store usage schema",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "inventory_transaction",
+      "alternative_candidates": [
+        "inventory_master.available_quantity"
+      ],
+      "ambiguity_notes": "Use for inventory transaction quantity, not current stock.",
+      "applicable_module": "inventory",
+      "column": "quantity",
+      "compatible_dimensions": [
+        "inventory"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "metric": "inventory_quantity",
+      "preferred_column": "quantity",
+      "preferred_table": "inventory_master_transaction",
+      "semantic_aliases": [
+        "quantity"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "inventory_master_transaction",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "subcontract_workorder_header",
+      "alternative_candidates": [
+        "subcontract_workorder.grand_total"
+      ],
+      "ambiguity_notes": "Use for manager-facing subcontract workorder value.",
+      "applicable_module": "projects",
+      "column": "after_taxes_grandtotal",
+      "compatible_dimensions": [
+        "subcontract_workorder",
+        "project"
+      ],
+      "confidence": 96,
+      "default_aggregation": "sum",
+      "metric": "workorder_value",
+      "preferred_column": "after_taxes_grandtotal",
+      "preferred_table": "subcontract_workorder_details",
+      "semantic_aliases": [
+        "amount_value"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "subcontract_workorder_details",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "subcontract_workorder_line",
+      "alternative_candidates": [
+        "subcontract_workorder_details.after_taxes_grandtotal"
+      ],
+      "ambiguity_notes": "Use when subcontract grand total is explicitly requested.",
+      "applicable_module": "procurement",
+      "column": "grand_total",
+      "compatible_dimensions": [
+        "subcontract_workorder"
+      ],
+      "confidence": 95,
+      "default_aggregation": "sum",
+      "metric": "workorder_total",
+      "preferred_column": "grand_total",
+      "preferred_table": "subcontract_workorder",
+      "semantic_aliases": [
+        "amount_value"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "subcontract_workorder",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "employee",
+      "alternative_candidates": [],
+      "ambiguity_notes": "CTC is the available payroll proxy; it is not verified net payroll.",
+      "applicable_module": "employees",
+      "column": "sal_ctc",
+      "compatible_dimensions": [
+        "employee",
+        "department",
+        "project"
+      ],
+      "confidence": 96,
+      "default_aggregation": "sum",
+      "metric": "employee_ctc",
+      "preferred_column": "sal_ctc",
+      "preferred_table": "employee_table",
+      "semantic_aliases": [
+        "cost"
+      ],
+      "source_of_evidence": "verified benchmark reference SQL and live column verification",
+      "table": "employee_table",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "purchase_order_line",
+      "alternative_candidates": [
+        "po_form.total_value"
+      ],
+      "ambiguity_notes": "Line-item value. Do not mix with header total unless pre-aggregated by PO.",
+      "applicable_module": "purchase_orders",
+      "column": "total_price",
+      "compatible_dimensions": [
+        "purchase_order_item",
+        "purchase_order",
+        "project",
+        "status",
+        "material"
+      ],
+      "confidence": 97,
+      "default_aggregation": "sum",
+      "metric": "purchase_order_item_value",
+      "preferred_column": "total_price",
+      "preferred_table": "po_items",
+      "semantic_aliases": [
+        "po item total price",
+        "po item value",
+        "purchase order item value",
+        "line item value",
+        "item total price",
+        "item amount"
+      ],
+      "source_of_evidence": "verified PO item benchmark reference SQL and live ERP verification",
+      "table": "po_items",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "material_issue_line",
+      "alternative_candidates": [],
+      "ambiguity_notes": "This is issue-line value using base charge, not purchase cost, inventory valuation, profit or loss.",
+      "applicable_module": "stores",
+      "column": "base_charge",
+      "compatible_dimensions": [
+        "project",
+        "material",
+        "month"
+      ],
+      "confidence": 86,
+      "default_aggregation": "sum",
+      "formula": "SUM(issued_quantity * base_charge)",
+      "metric": "material_issue_value",
+      "preferred_column": "base_charge",
+      "semantic_aliases": [
+        "consumption value",
+        "issue amount",
+        "issued material value",
+        "material value",
+        "issued value",
+        "material consumption value",
+        "material cost",
+        "material issue value",
+        "material usage value",
+        "material used value",
+        "issue pricing",
+        "pricing",
+        "site material value",
+        "store issue value"
+      ],
+      "source_of_evidence": "verified issue-line base_charge with issued_quantity benchmark case",
+      "table": "store_material_usage_quantity",
+      "verification_status": "verified_with_context"
+    },
+    {
+      "aggregation_grain": "vendor",
+      "alternative_candidates": [
+        "po_form.vendor_name"
+      ],
+      "ambiguity_notes": "Counts vendor master rows unless PO vendor count is explicitly requested.",
+      "applicable_module": "vendors",
+      "column": "vendor_id",
+      "compatible_dimensions": [
+        "vendor",
+        "state",
+        "category"
+      ],
+      "confidence": 98,
+      "default_aggregation": "count",
+      "metric": "vendor_count",
+      "preferred_column": "vendor_id",
+      "preferred_table": "vendor_mst",
+      "semantic_aliases": [
+        "vendor count",
+        "number of vendors",
+        "supplier count",
+        "number of suppliers"
+      ],
+      "source_of_evidence": "live ERP verification and vendor module benchmark",
+      "table": "vendor_mst",
+      "verification_status": "verified"
+    },
+    {
+      "aggregation_grain": "vendor_purchase_order_header",
+      "alternative_candidates": [],
+      "ambiguity_notes": "Use po_form rows grouped by trimmed vendor_name.",
+      "applicable_module": "vendors",
+      "column": "po_form_id",
+      "compatible_dimensions": [
+        "vendor"
+      ],
+      "confidence": 98,
+      "default_aggregation": "count",
+      "metric": "vendor_purchase_order_count",
+      "preferred_column": "po_form_id",
+      "preferred_table": "po_form",
+      "semantic_aliases": [
+        "purchase order count",
+        "po count",
+        "order count",
+        "most purchase orders",
+        "highest purchase orders"
+      ],
+      "source_of_evidence": "verified PO benchmark and live ERP verification",
+      "table": "po_form",
+      "verification_status": "verified"
+    }
+  ],
+  "poc_scope": {
+    "documentation": "POC_SCOPE.md",
+    "limited_modules": [
+      "boq",
+      "clients"
+    ],
+    "out_of_scope_modules": [
+      "payroll",
+      "timesheets",
+      "collections",
+      "finance"
+    ],
+    "read_only": true,
+    "supported_modules": [
+      "projects",
+      "billing",
+      "purchase_orders",
+      "vendors",
+      "inventory",
+      "stores",
+      "grn",
+      "employees",
+      "departments",
+      "attendance"
+    ],
+    "unknown_concept_policy": "clarify_or_safe_failure",
+    "version": "rcerp-poc-scope:v1"
+  },
+  "relationship_evidence_file": "rcerp_relationship_evidence.json",
+  "schema_fingerprint": "998cd2da2ba38660fd89084960b4893c56daf7857b78a388772e81ad8a6372a5",
+  "source_evidence": [
+    "ERP discovery report",
+    "ground-truth review for development benchmark",
+    "safe schema metadata inspection",
+    "executed reference SQL from verified benchmark"
+  ],
+  "status_fields": [
+    {
+      "alternative_candidates": [
+        "project_final_status",
+        "project_execusion_status"
+      ],
+      "ambiguity_notes": "Code 2 is present, but its business label is not verified; clarify named statuses.",
+      "applicable_module": "projects",
+      "column": "status",
+      "confidence": 0.88,
+      "preferred_column": "status",
+      "preferred_table": "project_mst",
+      "semantics": [
+        "0",
+        "1"
+      ],
+      "source_of_evidence": "project grouping benchmark; labels unverified",
+      "table": "project_mst",
+      "valid_values": [
+        2
+      ],
+      "value_meanings_verified": false,
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [
+        "new_bill_status",
+        "finance_status"
+      ],
+      "ambiguity_notes": "Codes 0, 2 and 3 are present, but their business labels are not verified; clarify named statuses.",
+      "applicable_module": "billing",
+      "column": "billing_status",
+      "confidence": 0.95,
+      "preferred_column": "billing_status",
+      "preferred_table": "client_bill_raising",
+      "semantics": [],
+      "source_of_evidence": "live distinct-value inspection",
+      "table": "client_bill_raising",
+      "valid_values": [
+        0,
+        2,
+        3
+      ],
+      "value_meanings_verified": false,
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [
+        "status"
+      ],
+      "ambiguity_notes": "Use for open/closed PO item questions.",
+      "applicable_module": "purchase_orders",
+      "column": "is_po_item_status",
+      "confidence": 0.98,
+      "preferred_column": "is_po_item_status",
+      "preferred_table": "po_items",
+      "semantics": [
+        "open",
+        "close"
+      ],
+      "source_of_evidence": "live distinct-value inspection",
+      "table": "po_items",
+      "valid_values": [
+        "open",
+        "close"
+      ],
+      "value_meanings_verified": true,
+      "verification_status": "verified"
+    },
+    {
+      "alternative_candidates": [
+        "approval_status"
+      ],
+      "ambiguity_notes": "Codes 2 and 5 are present, but active/inactive meanings are not verified; clarify named statuses.",
+      "applicable_module": "employees",
+      "column": "emp_status",
+      "confidence": 0.95,
+      "preferred_column": "emp_status",
+      "preferred_table": "employee_table",
+      "semantics": [],
+      "source_of_evidence": "live distinct-value inspection",
+      "table": "employee_table",
+      "valid_values": [
+        2,
+        5
+      ],
+      "value_meanings_verified": false,
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [
+        "attendence_type_name"
+      ],
+      "ambiguity_notes": "Approval codes 0, 1 and 2 are present, but their business labels are not verified.",
+      "applicable_module": "attendance",
+      "column": "approval_status",
+      "confidence": 0.95,
+      "preferred_column": "approval_status",
+      "preferred_table": "emp_attendance_register",
+      "semantics": [],
+      "source_of_evidence": "live distinct-value inspection",
+      "table": "emp_attendance_register",
+      "valid_values": [
+        0,
+        1,
+        2
+      ],
+      "value_meanings_verified": false,
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [
+        "is_po_item_status"
+      ],
+      "ambiguity_notes": "Safe for grouping numeric status. Business meaning of 0 is unverified.",
+      "applicable_module": "purchase_orders",
+      "column": "status",
+      "confidence": 0.94,
+      "preferred_column": "status",
+      "preferred_table": "po_items",
+      "semantics": [
+        "numeric_status"
+      ],
+      "source_of_evidence": "verified PO item grouping benchmark and live distinct values",
+      "table": "po_items",
+      "valid_values": [
+        0
+      ],
+      "value_meanings_verified": false,
+      "verification_status": "verified_with_context"
+    },
+    {
+      "alternative_candidates": [],
+      "ambiguity_notes": "",
+      "applicable_module": "stores",
+      "column": "cancel_status",
+      "confidence": 0.5,
+      "semantics": [],
+      "source_of_evidence": "schema only; cancelled meaning unverified",
+      "table": "store_usage_quantity_master",
+      "verification_status": "unresolved"
+    }
+  ],
+  "unresolved_definitions": [
+    {
+      "aliases": [
+        "company loss",
+        "company profit",
+        "profit or loss",
+        "profitability"
+      ],
+      "alternative_candidates": [],
+      "ambiguity_notes": "Safe-fail or explain missing KPI definition.",
+      "applicable_module": "finance",
+      "concept": "profit_loss",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No verified complete revenue-cost-expense formula.",
+      "source_of_evidence": "ground-truth review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "department performance",
+        "department performs",
+        "best department",
+        "top performing department"
+      ],
+      "alternative_candidates": [
+        "employee count",
+        "attendance count"
+      ],
+      "ambiguity_notes": "Ask for a verified metric.",
+      "applicable_module": "departments",
+      "concept": "department_performance",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "Performance KPI not defined; headcount and attendance are separate verified measures.",
+      "source_of_evidence": "ground-truth review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "performance",
+        "performing well",
+        "best performing",
+        "worst performing",
+        "performs best",
+        "performs worst"
+      ],
+      "alternative_candidates": [
+        "project value",
+        "gross billing",
+        "purchase value",
+        "employee count",
+        "attendance count"
+      ],
+      "ambiguity_notes": "Ask the user which supported metric defines performance.",
+      "applicable_module": "all",
+      "concept": "performance",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No universal ERP performance formula exists; a verified metric and dimension are required.",
+      "source_of_evidence": "POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "margin",
+        "gross margin",
+        "net margin",
+        "profit margin"
+      ],
+      "alternative_candidates": [
+        "gross billing",
+        "purchase value"
+      ],
+      "ambiguity_notes": "Do not subtract unrelated billing and purchase values.",
+      "applicable_module": "finance",
+      "concept": "margin",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No verified revenue-minus-cost formula or cost basis exists.",
+      "source_of_evidence": "POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "risk score",
+        "project risk",
+        "revenue at risk",
+        "high risk"
+      ],
+      "alternative_candidates": [],
+      "ambiguity_notes": "Require a manager-approved risk definition.",
+      "applicable_module": "all",
+      "concept": "risk_score",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No verified risk model, thresholds or approved business formula exists.",
+      "source_of_evidence": "POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "project cost",
+        "total project cost",
+        "costed the most"
+      ],
+      "alternative_candidates": [
+        "purchase value",
+        "material issue base charge"
+      ],
+      "ambiguity_notes": "Offer verified partial measures but never label them total project cost.",
+      "applicable_module": "projects",
+      "concept": "project_cost",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No verified complete project cost formula combines procurement, material, labour and overhead.",
+      "source_of_evidence": "POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "billing by project location",
+        "billing by site location",
+        "project location billing"
+      ],
+      "alternative_candidates": [
+        "project-level gross billing",
+        "BOQ locationwise amount after verification"
+      ],
+      "ambiguity_notes": "Ask for a verified location billing definition before running SQL.",
+      "applicable_module": "billing",
+      "concept": "billing_by_project_location",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "Location-wise billing grain is not verified; BOQ location details can duplicate billing header values without an approved aggregation rule.",
+      "source_of_evidence": "billing duplicate-risk benchmark case and BOQ detail relationship review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "stock value",
+        "inventory value",
+        "total stock value",
+        "stock valuation"
+      ],
+      "alternative_candidates": [
+        "current stock quantity"
+      ],
+      "ambiguity_notes": "Do not calculate FIFO, weighted average, latest purchase rate, or standard rate without a verified ERP rule.",
+      "applicable_module": "inventory",
+      "concept": "stock_value",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "No single verified ERP valuation basis exists for current stock in the POC catalog.",
+      "source_of_evidence": "inventory POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "inventory aging",
+        "stock aging",
+        "slow moving inventory",
+        "non moving inventory",
+        "non-moving inventory"
+      ],
+      "alternative_candidates": [
+        "current stock quantity"
+      ],
+      "ambiguity_notes": "Do not reconstruct aging from transactions without verified business rules.",
+      "applicable_module": "inventory",
+      "concept": "inventory_aging",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "Inventory aging and slow/non-moving stock require verified movement and closing-stock rules that are outside this POC scope.",
+      "source_of_evidence": "inventory POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "reorder recommendation",
+        "reorder level",
+        "safety stock",
+        "minimum stock planning",
+        "maximum stock planning"
+      ],
+      "alternative_candidates": [
+        "current stock quantity"
+      ],
+      "ambiguity_notes": "Do not recommend stock levels without verified planning rules.",
+      "applicable_module": "inventory",
+      "concept": "inventory_planning",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "Reorder and planning rules are not verified in the POC catalog.",
+      "source_of_evidence": "inventory POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "stock by project",
+        "project stock",
+        "inventory by project",
+        "stock for project"
+      ],
+      "alternative_candidates": [
+        "stock by material",
+        "stock by store id"
+      ],
+      "ambiguity_notes": "Do not join inventory balances to project_mst unless a verified relationship is added.",
+      "applicable_module": "inventory",
+      "concept": "project_stock",
+      "confidence": 0.0,
+      "preferred_column": null,
+      "preferred_table": null,
+      "reason": "inventory_master has no verified project relationship in the POC catalog.",
+      "source_of_evidence": "inventory POC scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "vendor performance",
+        "best vendor",
+        "worst vendor",
+        "vendor rating"
+      ],
+      "alternative_candidates": [
+        "purchase value",
+        "purchase order count"
+      ],
+      "ambiguity_notes": "Ask which verified metric should represent performance.",
+      "applicable_module": "vendors",
+      "concept": "vendor_performance",
+      "confidence": 0.0,
+      "reason": "No verified vendor performance formula, delivery KPI, quality KPI, or score is defined for this ERP POC.",
+      "source_of_evidence": "vendor module scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "vendor payment history",
+        "payments to vendor",
+        "vendor paid amount",
+        "vendor outstanding payment"
+      ],
+      "alternative_candidates": [
+        "purchase orders by vendor",
+        "purchase value by vendor"
+      ],
+      "ambiguity_notes": "Do not infer payments from purchase order totals.",
+      "applicable_module": "vendors",
+      "concept": "vendor_payment_history",
+      "confidence": 0.0,
+      "reason": "Payment history and vendor payable relationship are not verified in the POC catalog.",
+      "source_of_evidence": "vendor module scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "vendor credit",
+        "credit analysis",
+        "credit score"
+      ],
+      "alternative_candidates": [],
+      "ambiguity_notes": "Unsupported analytics must clarify or safely fail.",
+      "applicable_module": "vendors",
+      "concept": "vendor_credit_analysis",
+      "confidence": 0.0,
+      "reason": "Vendor credit analysis is not a verified ERP business concept in the POC.",
+      "source_of_evidence": "vendor module scope review",
+      "verification_status": "unresolved"
+    },
+    {
+      "aliases": [
+        "delivery kpi",
+        "vendor delivery performance",
+        "late delivery",
+        "on time delivery"
+      ],
+      "alternative_candidates": [],
+      "ambiguity_notes": "Do not predict or score delivery performance.",
+      "applicable_module": "vendors",
+      "concept": "vendor_delivery_kpi",
+      "confidence": 0.0,
+      "reason": "No verified delivery KPI formula or relationship is available for vendors.",
+      "source_of_evidence": "vendor module scope review",
+      "verification_status": "unresolved"
+    }
+  ],
+  "verified_examples": [
+    {
+      "applicable_module": "billing",
+      "metrics": [
+        "billing"
+      ],
+      "operation": "comparison",
+      "question": "Compare billing across projects and show the top 10.",
+      "sql": "SELECT p.project_name, SUM(b.gross_bill_value) AS gross_bill_value FROM client_bill_raising b JOIN project_mst p ON b.project_id = p.project_id GROUP BY p.project_id, p.project_name ORDER BY gross_bill_value DESC LIMIT 10",
+      "verification_status": "verified"
+    }
+  ],
+  "verified_semantic_catalog": {
+    "business_definitions": [
+      {
+        "aggregation": "sum",
+        "alternative_candidates": [
+          "po_form.sub_total",
+          "po_items.total_price"
+        ],
+        "ambiguity_notes": "Default PO value unless subtotal or item value is explicitly requested.",
+        "applicable_module": "purchase_orders",
+        "approved_joins": [
+          "po_items.po_id = po_form.po_id only via distinct PO bridge for project grouping",
+          "po_items.po_project_id = project_mst.project_id"
+        ],
+        "concept_id": "purchase_value",
+        "confidence": 0.98,
+        "data_grain": "one amount per purchase-order header",
+        "date_field": "po_form.date",
+        "date_storage_format": "%d-%m-%Y",
+        "duplicate_risk_rules": [
+          "Never sum po_form.total_value after joining raw po_items.",
+          "For project grouping, join po_form to a DISTINCT po_id, po_project_id bridge from po_items."
+        ],
+        "expected_output": {
+          "columns": [
+            "po_no",
+            "vendor_name",
+            "total_value",
+            "date"
+          ],
+          "grain": "one row per purchase order"
+        },
+        "formula": "SUM(COALESCE(po_form.total_value, 0))",
+        "label": "Purchase order total value",
+        "metric_definition": "Total value recorded on each purchase-order header.",
+        "null_handling": "NULL total values contribute zero; blank or invalid dates are excluded from date-filtered queries.",
+        "preferred_column": "total_value",
+        "preferred_table": "po_form",
+        "reference_sql": "SELECT po_no, vendor_name, total_value, date FROM po_form ORDER BY total_value DESC LIMIT 10",
+        "source_columns": [
+          "po_form.po_form_id",
+          "po_form.po_id",
+          "po_form.vendor_name",
+          "po_form.total_value"
+        ],
+        "source_of_evidence": "verified PO benchmark and live ERP execution",
+        "status_field": null,
+        "status_value_meanings_verified": false,
+        "valid_status_values": [],
+        "verification_status": "verified"
+      },
+      {
+        "aggregation": "sum",
+        "alternative_candidates": [
+          "po_form.total_value"
+        ],
+        "ambiguity_notes": "Use only when subtotal is explicitly requested.",
+        "applicable_module": "purchase_orders",
+        "approved_joins": [],
+        "concept_id": "purchase_order_subtotal",
+        "confidence": 0.98,
+        "data_grain": "one amount per purchase-order header",
+        "date_field": "po_form.date",
+        "date_storage_format": "%d-%m-%Y",
+        "duplicate_risk_rules": [
+          "Never sum po_form.sub_total after joining raw po_items."
+        ],
+        "expected_output": {
+          "columns": [
+            "total_sub_total"
+          ],
+          "grain": "single scalar row"
+        },
+        "formula": "SUM(COALESCE(po_form.sub_total, 0))",
+        "label": "Purchase order subtotal",
+        "metric_definition": "Subtotal recorded on each purchase-order header.",
+        "null_handling": "NULL subtotal values contribute zero.",
+        "preferred_column": "sub_total",
+        "preferred_table": "po_form",
+        "reference_sql": "SELECT SUM(sub_total) AS total_sub_total FROM po_form",
+        "source_columns": [
+          "po_form.po_form_id",
+          "po_form.sub_total"
+        ],
+        "source_of_evidence": "verified PO benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "aggregation": "count",
+        "alternative_candidates": [
+          "po_id"
+        ],
+        "ambiguity_notes": "PO header count.",
+        "applicable_module": "purchase_orders",
+        "approved_joins": [],
+        "concept_id": "purchase_order_count",
+        "confidence": 0.98,
+        "data_grain": "one row per purchase-order header",
+        "date_field": "po_form.date",
+        "date_storage_format": "%d-%m-%Y",
+        "duplicate_risk_rules": [
+          "Count po_form before joining po_items."
+        ],
+        "expected_output": {
+          "columns": [
+            "row_count"
+          ],
+          "grain": "single scalar row"
+        },
+        "formula": "COUNT(po_form.po_form_id)",
+        "label": "Purchase order count",
+        "metric_definition": "Number of purchase-order header records.",
+        "null_handling": "COUNT(po_form_id) excludes null identifiers.",
+        "preferred_column": "po_form_id",
+        "preferred_table": "po_form",
+        "reference_sql": "SELECT COUNT(*) AS row_count FROM po_form",
+        "source_columns": [
+          "po_form.po_form_id"
+        ],
+        "source_of_evidence": "verified PO benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "aggregation": "sum",
+        "alternative_candidates": [
+          "po_form.total_value"
+        ],
+        "ambiguity_notes": "Use for item/line value questions.",
+        "applicable_module": "purchase_orders",
+        "approved_joins": [
+          "po_items.po_id = po_form.po_id when PO header date/vendor context is required"
+        ],
+        "concept_id": "purchase_order_item_value",
+        "confidence": 0.97,
+        "data_grain": "one amount per purchase-order item line",
+        "date_field": null,
+        "duplicate_risk_rules": [
+          "Line metrics may join to PO header for dates/vendor, but do not also sum header totals."
+        ],
+        "expected_output": {
+          "columns": [
+            "total_total_price"
+          ],
+          "grain": "single scalar row"
+        },
+        "formula": "SUM(COALESCE(po_items.total_price, 0))",
+        "label": "PO item total price",
+        "metric_definition": "Total price recorded on each PO item/detail line.",
+        "null_handling": "NULL total_price values contribute zero.",
+        "preferred_column": "total_price",
+        "preferred_table": "po_items",
+        "reference_sql": "SELECT SUM(total_price) AS total_total_price FROM po_items",
+        "source_columns": [
+          "po_items.po_item_id",
+          "po_items.po_id",
+          "po_items.total_price"
+        ],
+        "source_of_evidence": "verified PO item benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "aggregation": "sum",
+        "alternative_candidates": [
+          "po_final_price.qty"
+        ],
+        "ambiguity_notes": "Use for item quantity questions.",
+        "applicable_module": "purchase_orders",
+        "approved_joins": [
+          "po_items.po_id = po_form.po_id when PO header date/vendor context is required"
+        ],
+        "concept_id": "purchase_order_item_quantity",
+        "confidence": 0.96,
+        "data_grain": "one quantity per purchase-order item line",
+        "date_field": null,
+        "duplicate_risk_rules": [
+          "Line metric; safe at po_items grain."
+        ],
+        "expected_output": {
+          "columns": [
+            "total_qty"
+          ],
+          "grain": "single scalar row"
+        },
+        "formula": "SUM(COALESCE(po_items.qty, 0))",
+        "label": "PO item quantity",
+        "metric_definition": "Quantity recorded on each PO item/detail line.",
+        "null_handling": "NULL qty values contribute zero.",
+        "preferred_column": "qty",
+        "preferred_table": "po_items",
+        "reference_sql": "SELECT SUM(qty) AS total_qty FROM po_items",
+        "source_columns": [
+          "po_items.po_item_id",
+          "po_items.qty"
+        ],
+        "source_of_evidence": "verified PO item benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "projects",
+        "concept_id": "project_value",
+        "confidence_score": 98,
+        "definition": "Numeric value stored on project_mst.project_value at one row per project grain. Blank strings are NULL.",
+        "formula": "CAST project_value to DECIMAL after trimming commas and blanks",
+        "label": "Project value",
+        "preferred_column": "project_value",
+        "preferred_table": "project_mst",
+        "source_of_evidence": "verified project benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "projects",
+        "concept_id": "project_count",
+        "confidence_score": 98,
+        "definition": "Count rows from project_mst.",
+        "formula": "COUNT(*)",
+        "label": "Project count",
+        "preferred_column": "project_id",
+        "preferred_table": "project_mst",
+        "source_of_evidence": "verified project benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "concept_id": "material_issued_quantity",
+        "confidence_score": 95,
+        "definition": "Sum store_material_usage_quantity.issued_quantity at material issue line grain.",
+        "formula": "SUM(issued_quantity)",
+        "label": "Material issued quantity",
+        "preferred_column": "issued_quantity",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "concept_id": "store_requested_quantity",
+        "confidence_score": 95,
+        "definition": "Sum store_material_usage_quantity.requested_quantity at material issue line grain.",
+        "formula": "SUM(requested_quantity)",
+        "label": "Requested material quantity",
+        "preferred_column": "requested_quantity",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "concept_id": "material_issue_value",
+        "confidence_score": 86,
+        "definition": "Issued quantity multiplied by issue-line base charge. Not full purchase cost or inventory valuation.",
+        "formula": "SUM(issued_quantity * base_charge)",
+        "label": "Material issue value",
+        "preferred_column": "base_charge",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store pricing benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "concept_id": "material_issue_count",
+        "confidence_score": 95,
+        "definition": "Count rows from store_material_usage_quantity.",
+        "formula": "COUNT(*)",
+        "label": "Material issue line count",
+        "preferred_column": "store_material_usage_quantity_id",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      }
+    ],
+    "business_formulas": [
+      {
+        "alternative_candidates": [
+          "po_form.sub_total",
+          "po_items.total_price"
+        ],
+        "ambiguity_notes": "Header total. Do not sum after raw item join.",
+        "applicable_module": "purchase_orders",
+        "confidence": 0.98,
+        "definition": "SUM(COALESCE(po_form.total_value, 0)) at PO header grain",
+        "formula": "purchase_value",
+        "preferred_column": "total_value",
+        "preferred_table": "po_form",
+        "source_of_evidence": "verified PO benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [
+          "po_form.total_value"
+        ],
+        "ambiguity_notes": "Use only when subtotal is explicit.",
+        "applicable_module": "purchase_orders",
+        "confidence": 0.98,
+        "definition": "SUM(COALESCE(po_form.sub_total, 0)) at PO header grain",
+        "formula": "purchase_order_subtotal",
+        "preferred_column": "sub_total",
+        "preferred_table": "po_form",
+        "source_of_evidence": "verified PO benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [
+          "po_form.total_value"
+        ],
+        "ambiguity_notes": "Line item metric.",
+        "applicable_module": "purchase_orders",
+        "confidence": 0.97,
+        "definition": "SUM(COALESCE(po_items.total_price, 0)) at PO item grain",
+        "formula": "purchase_order_item_value",
+        "preferred_column": "total_price",
+        "preferred_table": "po_items",
+        "source_of_evidence": "verified PO item benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [
+          "po_final_price.qty"
+        ],
+        "ambiguity_notes": "Line item quantity.",
+        "applicable_module": "purchase_orders",
+        "confidence": 0.96,
+        "definition": "SUM(COALESCE(po_items.qty, 0)) at PO item grain",
+        "formula": "ordered_quantity",
+        "preferred_column": "qty",
+        "preferred_table": "po_items",
+        "source_of_evidence": "verified PO item benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "projects",
+        "confidence_score": 98,
+        "definition": "CAST project_value to DECIMAL after trimming commas and blanks",
+        "formula": "project_value",
+        "preferred_column": "project_value",
+        "preferred_table": "project_mst",
+        "source_of_evidence": "verified project benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "projects",
+        "confidence_score": 98,
+        "definition": "COUNT(*)",
+        "formula": "project_count",
+        "preferred_column": "project_id",
+        "preferred_table": "project_mst",
+        "source_of_evidence": "verified project benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "confidence_score": 95,
+        "definition": "SUM(issued_quantity)",
+        "formula": "material_issued_quantity",
+        "preferred_column": "issued_quantity",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "confidence_score": 95,
+        "definition": "SUM(requested_quantity)",
+        "formula": "store_requested_quantity",
+        "preferred_column": "requested_quantity",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "confidence_score": 86,
+        "definition": "SUM(issued_quantity * base_charge)",
+        "formula": "material_issue_value",
+        "preferred_column": "base_charge",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store pricing benchmark",
+        "verification_status": "verified"
+      },
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "",
+        "applicable_module": "stores",
+        "confidence_score": 95,
+        "definition": "COUNT(*)",
+        "formula": "material_issue_count",
+        "preferred_column": "store_material_usage_quantity_id",
+        "preferred_table": "store_material_usage_quantity",
+        "source_of_evidence": "verified store benchmark",
+        "verification_status": "verified"
+      }
+    ],
+    "duplicate_risk_warnings": [
+      {
+        "alternative_candidates": [],
+        "ambiguity_notes": "Never SUM(po_form.total_value) after raw po_items join.",
+        "applicable_module": "purchase_orders",
+        "confidence": 0.98,
+        "detail_table": "po_items",
+        "header_table": "po_form",
+        "preferred_column": "po_id",
+        "preferred_table": "po_form",
+        "relationship": "po_form -> po_items",
+        "rule": "Pre-aggregate or select distinct PO headers before joining item rows. Use line totals only for item-grain questions.",
+        "source_of_evidence": "verified PO relationship review and blocked duplicate aggregation check",
+        "verification_status": "verified",
+        "warning": "PO header totals can be duplicated when joined to item rows before aggregation."
+      }
+    ],
+    "verified_examples": [
+      {
+        "applicable_module": "purchase_orders",
+        "dimensions": [
+          "purchase_order",
+          "project"
+        ],
+        "metrics": [
+          "purchase_value"
+        ],
+        "operation": "lookup",
+        "question": "Show purchase orders for RDSS-VIZAG.",
+        "sql": "SELECT p.project_name, f.po_no, f.vendor_name, f.total_value FROM project_mst p JOIN (SELECT DISTINCT po_id, po_project_id FROM po_items) x ON x.po_project_id = p.project_id JOIN po_form f ON f.po_id = x.po_id WHERE p.project_name = 'RDSS-VIZAG' ORDER BY f.total_value DESC LIMIT 50",
+        "verification_status": "verified"
+      },
+      {
+        "applicable_module": "purchase_orders",
+        "dimensions": [
+          "month"
+        ],
+        "metrics": [
+          "purchase_value"
+        ],
+        "operation": "trend",
+        "question": "Show purchase orders in 2025.",
+        "sql": "SELECT DATE_FORMAT(STR_TO_DATE(NULLIF(date, ''), '%d-%m-%Y'), '%Y-%m') AS po_month, COUNT(*) AS purchase_order_count, SUM(total_value) AS purchase_value FROM po_form WHERE STR_TO_DATE(NULLIF(date, ''), '%d-%m-%Y') BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY po_month ORDER BY po_month",
+        "verification_status": "verified"
+      }
+    ],
+    "version": "verified-erp-semantic-catalog:v10"
+  }
+}

@@ -65,17 +65,21 @@ def save_session_mysql_connection(
     database_name: str,
     name: str | None = None,
     schema_fingerprint: str | None = None,
+    table_count: int | None = None,
+    column_count: int | None = None,
 ):
-    save_session_source(
-        session_id,
-        {
-            "source_type": "mysql",
-            "connection_id": connection_id,
-            "database": database_name,
-            "name": name,
-            "schema_fingerprint": schema_fingerprint,
-        },
-    )
+    source = {
+        "source_type": "mysql",
+        "connection_id": connection_id,
+        "database": database_name,
+        "name": name,
+        "schema_fingerprint": schema_fingerprint,
+    }
+    if table_count is not None:
+        source["tables"] = table_count
+    if column_count is not None:
+        source["columns"] = column_count
+    save_session_source(session_id, source)
 
 
 def get_session_source(session_id: str) -> dict | None:

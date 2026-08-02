@@ -3,6 +3,7 @@ import { Send } from "lucide-react";
 
 import UploadDatabase from "./UploadDatabase";
 import DatabaseChip from "./DatabaseChip";
+import { clearSession } from "../services/api";
 
 import type { DatabaseInfo } from "../types/database";
 
@@ -22,6 +23,7 @@ export default function ChatInput({
   setDatabase,
 }: ChatInputProps) {
   const [message, setMessage] = useState("");
+  const [clearingDatabase, setClearingDatabase] = useState(false);
 
   const handleSend = () => {
     if (!message.trim()) return;
@@ -29,6 +31,27 @@ export default function ChatInput({
     onSend(message);
 
     setMessage("");
+  };
+
+  const starterQuestions = [
+    "List projects",
+    "Top vendors by PO value",
+    "Compare billing and PO by project",
+    "Show material issued",
+    "Show top materials issued",
+    "Project billing summary",
+  ];
+
+  const clearDatabase = async () => {
+    setClearingDatabase(true);
+    try {
+      await clearSession();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setDatabase(null);
+      setClearingDatabase(false);
+    }
   };
 
   return (
@@ -42,8 +65,24 @@ export default function ChatInput({
           databaseType={database.type}
           tables={database.tables}
           columns={database.columns}
-          onRemove={() => setDatabase(null)}
+          onRemove={clearDatabase}
+          removing={clearingDatabase}
         />
+      )}
+
+      {database && (
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          {starterQuestions.map((question) => (
+            <button
+              key={question}
+              type="button"
+              onClick={() => onSend(question)}
+              className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-white"
+            >
+              {question}
+            </button>
+          ))}
+        </div>
       )}
 
       <div className="flex items-center gap-2">
@@ -83,7 +122,10 @@ export default function ChatInput({
         />
 
         <button
+          type="button"
           onClick={handleSend}
+          aria-label="Send message"
+          title="Send message"
           className="
             h-11
             w-11

@@ -172,3 +172,47 @@ def test_mcp_business_catalog_tools_are_dynamic(tmp_path):
     assert "customer" in entities["entities"]
     assert joins["join_paths"]
     assert analysis["candidates"]
+
+
+def test_mcp_resolve_entity_finds_sqlite_business_value(tmp_path):
+    database = tmp_path / "entities.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE project_master (project_id INTEGER PRIMARY KEY, project_name TEXT, project_code TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO project_master(project_name, project_code) VALUES ('RDSS VIZAG', 'RDSS-VIZAG')"
+        )
+
+    result = mcp_server.resolve_entity(
+        "give me details on RDSS-VIZAG project",
+        database_path=str(database),
+    )
+
+    assert result["matches"]
+    assert result["matches"][0]["table"] == "project_master"
+    assert result["matches"][0]["primary_key"] == 1
+    assert result["matches"][0]["confidence"] >= 90
+
+
+def test_mcp_resolve_entities_handles_multiple_sqlite_mentions(tmp_path):
+    database = tmp_path / "multi_entities.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE project_master (project_id INTEGER PRIMARY KEY, project_name TEXT)"
+        )
+        connection.executemany(
+            "INSERT INTO project_master(project_name) VALUES (?)",
+            [("RDSS VIZAG",), ("APDRP",)],
+        )
+
+    result = mcp_server.resolve_entities(
+        "Compare RDSS-VIZAG and APDRP in 2025",
+        database_path=str(database),
+    )
+
+    mentions = [entity["mention"] for entity in result["entities"]]
+    assert "RDSS-VIZAG" in mentions
+    assert "APDRP" in mentions
+    assert result["dates"][0]["start"] == "2025-01-01"
+    assert result["needs_clarification"] is False

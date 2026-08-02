@@ -20,6 +20,8 @@ temp_databases/
 backend/uploads/
 backend/temp_databases/
 backend/runtime/
+backend/backend/runtime/
+runtime-*.err
 .venv/
 venv/
 

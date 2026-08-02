@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ERP AI Assistant POC Overview</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #172033;
+      background: #ffffff;
+      line-height: 1.35;
+    }
+    .page {
+      height: 266mm;
+      page-break-after: always;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .page:last-child { page-break-after: auto; }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 1.8px;
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      letter-spacing: 0;
+      line-height: 1.08;
+      color: #0f172a;
+    }
+    h2 {
+      margin: 14px 0 7px;
+      font-size: 16px;
+      color: #0f172a;
+    }
+    h3 {
+      margin: 14px 0 6px;
+      font-size: 13px;
+      color: #1f2937;
+    }
+    p { margin: 0 0 7px; font-size: 11.4px; }
+    ul { margin: 5px 0 8px 17px; padding: 0; }
+    li { margin: 2px 0; font-size: 10.8px; }
+    .hero {
+      border: 1px solid #d9e2ec;
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 9px 0;
+    }
+    .stat {
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 10px;
+      background: #ffffff;
+    }
+    .stat strong {
+      display: block;
+      font-size: 20px;
+      color: #020617;
+      margin-bottom: 2px;
+    }
+    .stat span { font-size: 10.5px; color: #64748b; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin: 10px 0 12px;
+    }
+    .flow div {
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      padding: 9px;
+      background: #ffffff;
+      min-height: 52px;
+      font-size: 10.4px;
+    }
+    .flow strong { display: block; color: #0f172a; margin-bottom: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 7px 0 10px;
+      font-size: 10.2px;
+    }
+    th {
+      text-align: left;
+      background: #eef2f7;
+      border: 1px solid #d8e0ea;
+      padding: 6px;
+      color: #1f2937;
+    }
+    td {
+      border: 1px solid #e2e8f0;
+      padding: 6px;
+      vertical-align: top;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .box {
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 11px;
+      background: #ffffff;
+      margin: 9px 0;
+    }
+    .answer {
+      border-left: 4px solid #2563eb;
+      background: #f8fbff;
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin: 10px 0;
+      font-size: 11.5px;
+    }
+    .tag {
+      display: inline-block;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      padding: 3px 8px;
+      margin: 2px 3px 2px 0;
+      font-size: 10.5px;
+      background: #ffffff;
+    }
+    .footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 6px;
+      font-size: 9.5px;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+    }
+    .note { color: #475569; font-size: 10.5px; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="eyebrow">Proof of Concept</div>
+    <h1>ERP AI Assistant Overview</h1>
+    <div class="hero">
+      <p><strong>Purpose:</strong> The ERP AI Assistant lets project managers ask business questions in plain English and receive SQL-backed answers from the verified ERP database.</p>
+      <p>Instead of exposing managers to table names, joins, or database tools, the assistant uses verified ERP knowledge to understand the question, select the correct business module, run safe read-only SQL, and present the result in a manager-friendly format.</p>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><strong>1</strong><span>Stable ERP product schema</span></div>
+      <div class="stat"><strong>1,229</strong><span>Tables in the connected ERP database</span></div>
+      <div class="stat"><strong>18,239</strong><span>Columns inspected and profiled</span></div>
+    </div>
+
+    <h2>Current Architecture</h2>
+    <div class="flow">
+      <div><strong>React UI</strong>Manager asks questions, sees answer cards, tables, confidence, and clarification options.</div>
+      <div><strong>FastAPI Backend</strong>Handles sessions, uploads, MySQL connection, chat requests, and cache checks.</div>
+      <div><strong>Verified ERP Layer</strong>Maps business terms to verified modules, metrics, joins, dates, and entity types.</div>
+      <div><strong>SQL Safety Layer</strong>Compiles or validates read-only SQL, blocks unsafe queries, and prevents wrong joins.</div>
+      <div><strong>MySQL ERP</strong>Queries the live imported ERP database instead of converting large SQL dumps to SQLite.</div>
+      <div><strong>Redis Cache</strong>Caches successful final responses for repeated questions on the same database.</div>
+      <div><strong>LLM Provider</strong>Used for understanding, phrasing, and explanation, not for blindly inventing tables.</div>
+      <div><strong>MCP Tools</strong>Provide schema inspection, validation, dry-run, and read-only execution tools.</div>
+    </div>
+
+    <h2>Main Runtime Idea</h2>
+    <ul>
+      <li>The ERP schema is treated as stable, so verified business knowledge is reused instead of rediscovering everything at runtime.</li>
+      <li>Verified modules currently drive the strongest answers: Projects, Billing, Purchase Orders, Vendors, Store / Material Movement, Materials, and Inventory basics.</li>
+      <li>The assistant prefers approved relationships and deterministic SQL patterns before using fallback reasoning.</li>
+      <li>If a business meaning is unclear, the assistant asks a clarification instead of guessing.</li>
+    </ul>
+
+    <h2>Important Code Areas</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Responsibility</th><th>Examples</th></tr></thead>
+      <tbody>
+        <tr><td>Frontend</td><td>Chat UI, answer cards, tables, starter questions</td><td>src/App.tsx, src/components/*</td></tr>
+        <tr><td>API</td><td>Upload, attach database, chat, clear session</td><td>backend/main.py</td></tr>
+        <tr><td>Question Pipeline</td><td>Parse, bind, plan, execute, render</td><td>backend/chat_pipeline.py</td></tr>
+        <tr><td>ERP Knowledge</td><td>Verified catalog, relationships, modules, aliases</td><td>backend/semantic_catalogs/*</td></tr>
+        <tr><td>SQL Safety</td><td>Validated read-only execution and plan-aware checks</td><td>backend/verified_sql_compiler.py, validators</td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer"><span>ERP AI Assistant POC</span><span>Page 1 of 3</span></div>
+  </section>
+
+  <section class="page">
+    <div class="eyebrow">Question Flow</div>
+    <h1>How A Manager Question Works</h1>
+
+    <h2>Runtime Flow</h2>
+    <div class="box">
+      <ol>
+        <li><strong>User asks a natural question.</strong> Example: “Compare billing of RDSS-VIZAG and RDSS-UGCABLE.”</li>
+        <li><strong>Semantic parser extracts intent.</strong> It identifies comparison, billing metric, project entities, date words, limits, and ordering.</li>
+        <li><strong>ERP binder maps business meaning.</strong> “Billing” is mapped to verified billing definitions, not guessed from similar table names.</li>
+        <li><strong>Entity resolver checks real data.</strong> Project, vendor, and material names are resolved against actual ERP values.</li>
+        <li><strong>Verified planner selects tables and joins.</strong> Only approved tables, columns, relationships, and aggregation grain are used.</li>
+        <li><strong>SQL is compiled and validated.</strong> The backend blocks writes, unsafe SQL, missing filters, wrong joins, and duplicate-risk totals.</li>
+        <li><strong>Read-only SQL runs on MySQL.</strong> Results are returned with row limits and timeout safety.</li>
+        <li><strong>Answer is rendered.</strong> The assistant gives a short summary, table, confidence, SQL details, and limitations when needed.</li>
+      </ol>
+    </div>
+
+    <h2>Clarification Flow</h2>
+    <p>When the user question is answerable but missing key information, the assistant asks for the smallest useful clarification.</p>
+    <div class="answer">
+      <p><strong>User:</strong> Compare purchase orders.</p>
+      <p><strong>Assistant:</strong> Which two projects or vendors would you like to compare?</p>
+      <p><strong>Options:</strong> RDSS-VIZAG and RDSS-UGCABLE, RDSS-VIZAG and RDSS-NELLORE, POLYCAB INDIA LIMITED and KEI Industries.</p>
+      <p><strong>User:</strong> RDSS-VIZAG and RDSS-UGCABLE.</p>
+      <p><strong>Assistant:</strong> Should I compare PO total value or PO count?</p>
+      <p><strong>User:</strong> PO total value.</p>
+      <p><strong>Result:</strong> The assistant continues the original question instead of treating the follow-up as a new query.</p>
+    </div>
+
+    <h2>Why This Matters</h2>
+    <div class="two-col">
+      <div class="box">
+        <h3>Before</h3>
+        <ul>
+          <li>Follow-up answers could lose the original question.</li>
+          <li>Vague questions sometimes selected wrong tables.</li>
+          <li>Some questions failed with generic safe-query errors.</li>
+          <li>LLM could be asked to rediscover too much schema.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Now</h3>
+        <ul>
+          <li>Clarification state is stored per session.</li>
+          <li>Verified modules guide table, metric, and join selection.</li>
+          <li>Unsupported KPIs ask for definition instead of hallucinating.</li>
+          <li>Repeated successful answers can return quickly from Redis.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Answer Format</h2>
+    <ul>
+      <li><strong>Short answer first:</strong> one clear business sentence.</li>
+      <li><strong>Table when useful:</strong> rankings, comparisons, totals by project, vendor, material, or date.</li>
+      <li><strong>Context:</strong> explains what the answer is based on, such as billing header value or PO total value.</li>
+      <li><strong>Confidence:</strong> shows whether entity resolution, planning, SQL validation, and execution were reliable.</li>
+      <li><strong>Limitations:</strong> shown only when important, for example when profit or low-stock thresholds are not verified.</li>
+    </ul>
+
+    <h2>Performance Approach</h2>
+    <p>The application avoids sending the full 1,229-table schema to the LLM for normal verified questions. It uses verified catalog entries, compact context, Redis caching, read-only SQL execution, and live MySQL querying for large ERP data.</p>
+
+    <div class="footer"><span>ERP AI Assistant POC</span><span>Page 2 of 3</span></div>
+  </section>
+
+  <section class="page">
+    <div class="eyebrow">POC Coverage</div>
+    <h1>What It Can Answer</h1>
+
+    <h2>Verified Modules</h2>
+    <table>
+      <thead><tr><th>Module</th><th>Strong POC Questions</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Projects</td><td>Running projects, project details, project value, project comparisons</td><td>Verified for demo</td></tr>
+        <tr><td>Billing</td><td>Total billing, billing by project, project billing comparison, billing for this year</td><td>Verified for demo</td></tr>
+        <tr><td>Purchase Orders</td><td>Total PO value, top POs, PO by project, PO comparisons, PO value by vendor</td><td>Verified for demo</td></tr>
+        <tr><td>Vendors</td><td>Vendor list, vendor details, top vendors by PO value, vendor comparison</td><td>Verified for demo</td></tr>
+        <tr><td>Store / Materials</td><td>Top materials issued, material issued for project, last 30 days material movement</td><td>Verified for demo</td></tr>
+        <tr><td>Inventory</td><td>Basic inventory and material availability style questions</td><td>Limited but usable</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Good Demo Questions</h2>
+    <div class="two-col">
+      <div>
+        <h3>Direct Questions</h3>
+        <ul>
+          <li>What projects are currently running?</li>
+          <li>Show me the details of RDSS-VIZAG.</li>
+          <li>Show me the top five projects by project value.</li>
+          <li>What is the total billing across all projects?</li>
+          <li>Compare billing of RDSS-VIZAG and RDSS-UGCABLE.</li>
+          <li>What is the total purchase order value across all projects?</li>
+          <li>Which vendors have the highest purchase order value?</li>
+          <li>Show material issued during the last 30 days.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Clarification Questions</h3>
+        <ul>
+          <li>Show project details.</li>
+          <li>Compare purchase orders.</li>
+          <li>Compare vendors.</li>
+          <li>Show top vendors.</li>
+          <li>Show current inventory.</li>
+          <li>Show material movement.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Known Limitations</h2>
+    <ul>
+      <li><strong>Profit, margin, loss, performance, and risk</strong> require approved business formulas before the assistant should answer them.</li>
+      <li><strong>Project details</strong> currently means verified project master information. A richer project profile can combine billing, PO, material movement, and inventory later.</li>
+      <li><strong>Inventory low-stock logic</strong> needs a business-approved threshold or reorder-level rule.</li>
+      <li><strong>Payroll, attendance, timesheets, BOQ, GRN, subcontract, and finance</strong> are not fully demo-certified yet.</li>
+      <li><strong>Arbitrary database support</strong> is no longer the main goal. The POC is optimized for the stable ERP product schema.</li>
+    </ul>
+
+    <h2>Next Improvements</h2>
+    <ul>
+      <li>Expand the verified ERP catalog for remaining management modules.</li>
+      <li>Create a richer project summary combining billing, PO, material, and inventory facts.</li>
+      <li>Improve UI tables with sticky columns, better spacing, and polished clarification chips.</li>
+      <li>Freeze a benchmark set and measure answer accuracy after every catalog update.</li>
+      <li>Add more verified aliases for manager-style wording across the supported modules.</li>
+    </ul>
+
+    <div class="hero">
+      <p><strong>POC position:</strong> The assistant is demo-ready for verified ERP management questions across Projects, Billing, Purchase Orders, Vendors, Store / Material Movement, and basic Inventory. It should clarify ambiguous questions and avoid inventing unsupported KPIs.</p>
+    </div>
+
+    <div class="footer"><span>ERP AI Assistant POC</span><span>Page 3 of 3</span></div>
+  </section>
+</body>
+</html>

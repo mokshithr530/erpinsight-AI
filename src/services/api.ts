@@ -3,6 +3,9 @@ import type { UploadResponse } from "../types/database";
 import { getSessionId } from "./session";
 
 const API = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+const REQUEST_TIMEOUT_MS = 12_000;
+const CHAT_TIMEOUT_MS = 90_000;
+const UPLOAD_TIMEOUT_MS = 15 * 60_000;
 
 type ApiErrorResponse = {
     success?: false;
@@ -25,6 +28,29 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
     return data as T;
 }
 
+async function fetchWithTimeout(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    timeoutMs = REQUEST_TIMEOUT_MS
+) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(input, {
+            ...init,
+            signal: controller.signal
+        });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new Error("Request timed out. Check that the backend and Docker database are running.");
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeout);
+    }
+}
+
 export async function uploadDatabase(file: File): Promise<UploadResponse & ApiErrorResponse> {
 
     const formData = new FormData();
@@ -32,25 +58,25 @@ export async function uploadDatabase(file: File): Promise<UploadResponse & ApiEr
     formData.append("file", file);
     formData.append("session_id", getSessionId());
 
-    const response = await fetch(`${API}/upload`, {
+    const response = await fetchWithTimeout(`${API}/upload`, {
 
         method: "POST",
 
         body: formData
 
-    });
+    }, UPLOAD_TIMEOUT_MS);
 
     return readJsonResponse<UploadResponse & ApiErrorResponse>(response);
 }
 
 export async function listMySQLDatabases(): Promise<{ success: boolean; databases: string[] }> {
-    const response = await fetch(`${API}/mysql/databases`);
+    const response = await fetchWithTimeout(`${API}/mysql/databases`);
 
     return readJsonResponse<{ success: boolean; databases: string[] }>(response);
 }
 
 export async function attachMySQLDatabase(database: string): Promise<UploadResponse & ApiErrorResponse> {
-    const response = await fetch(`${API}/mysql/attach`, {
+    const response = await fetchWithTimeout(`${API}/mysql/attach`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
@@ -59,14 +85,14 @@ export async function attachMySQLDatabase(database: string): Promise<UploadRespo
             database,
             session_id: getSessionId()
         })
-    });
+    }, 30_000);
 
     return readJsonResponse<UploadResponse & ApiErrorResponse>(response);
 }
 
 export async function sendMessage(question: string): Promise<ChatResponse> {
 
-    const response = await fetch(`${API}/chat`, {
+    const response = await fetchWithTimeout(`${API}/chat`, {
 
         method: "POST",
 
@@ -79,14 +105,14 @@ export async function sendMessage(question: string): Promise<ChatResponse> {
             session_id: getSessionId()
         })
 
-    });
+    }, CHAT_TIMEOUT_MS);
 
     return readJsonResponse<ChatResponse>(response);
 }
 
 export async function getStatus() {
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
         `${API}/status?session_id=${encodeURIComponent(getSessionId())}`
     );
 
@@ -95,7 +121,7 @@ export async function getStatus() {
 
 export async function clearSession() {
 
-    const response = await fetch(`${API}/clear`, {
+    const response = await fetchWithTimeout(`${API}/clear`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"

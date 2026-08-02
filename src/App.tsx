@@ -12,7 +12,7 @@ function App() {
                 SQL Assistant
               </div>
               <h1 className="mt-1 text-2xl font-semibold">
-                Natural language database querying
+                ERP analytics assistant
               </h1>
             </div>
 
@@ -25,16 +25,16 @@ function App() {
         <main className="mx-auto grid max-w-6xl gap-4 px-6 py-6 md:grid-cols-[1.4fr_0.8fr]">
           <section className="rounded-lg border border-gray-200 bg-white p-5">
             <h2 className="text-lg font-semibold">
-              POC workspace
+              Demo dashboard
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
-              Upload a SQLite database from the chat widget, ask a question,
-              and the backend will generate, validate, execute, and explain the
-              SQL result.
+              Connect the ERP database, then ask verified management questions
+              across projects, billing, purchase orders, vendors, store movement
+              and inventory.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {["Upload database", "Ask question", "Review answer"].map(
+              {["Connect ERP", "Ask question", "Review answer"].map(
                 (item, index) => (
                   <div
                     key={item}
@@ -50,14 +50,43 @@ function App() {
                 )
               )}
             </div>
+
+            <div className="mt-5">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+                Verified modules
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  "Projects",
+                  "Billing",
+                  "Purchase Orders",
+                  "Vendors",
+                  "Store Movement",
+                  "Inventory",
+                ].map((module) => (
+                  <span
+                    key={module}
+                    className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700"
+                  >
+                    {module}
+                  </span>
+                ))}
+              </div>
+            </div>
           </section>
 
           <aside className="rounded-lg border border-gray-200 bg-white p-5">
             <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-gray-500">
-              Supported files
+              Good demo questions
             </h2>
             <div className="mt-4 flex flex-wrap gap-2">
-              {[".db", ".sqlite", ".sql"].map((type) => (
+              {[
+                "List projects",
+                "Top vendors by PO value",
+                "Compare billing and PO by project",
+                "Show material issued",
+                "Show top materials issued",
+              ].map((type) => (
                 <span
                   key={type}
                   className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium"
@@ -68,8 +97,8 @@ function App() {
             </div>
 
             <p className="mt-5 text-sm leading-6 text-gray-600">
-              The frontend stays provider-neutral. The backend decides which
-              LLM provider to use through environment configuration.
+              The answer uses verified ERP mappings first. Unsupported KPIs
+              like profit/loss ask for clarification instead of guessing.
             </p>
           </aside>
         </main>

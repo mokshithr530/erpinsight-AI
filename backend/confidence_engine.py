@@ -17,6 +17,7 @@ class ConfidenceEngine:
         missing_kpi=False,
         assumptions=0,
         foreign_key_evidence=False,
+        verified_join=False,
         inferred_join=False,
         metadata_only=False,
     ):
@@ -48,6 +49,9 @@ class ConfidenceEngine:
         elif foreign_key_evidence:
             score += 25
             reasons.append("Join path has foreign-key evidence.")
+        elif verified_join:
+            score += 25
+            reasons.append("Join path uses a verified ERP relationship.")
         elif inferred_join:
             score += 14
             reasons.append("Some join logic was inferred from shared ID columns.")

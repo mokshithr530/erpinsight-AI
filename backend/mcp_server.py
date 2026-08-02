@@ -13,6 +13,10 @@ from mysql_adapter import mysql_adapter
 from sqlserver_adapter import sqlserver_adapter
 from validator import validator
 from business_catalog import business_catalog
+from entity_resolver import entity_resolver
+from relationship_discovery import relationship_discovery
+from schema_retriever import schema_retriever
+from semantic_parser import semantic_parser
 
 
 mcp = FastMCP("SQL Assistant")
@@ -148,6 +152,151 @@ def _catalog_for_source(source):
         row_counts=_sqlite_row_counts(path, schema),
         fingerprint=business_catalog.fingerprint(schema),
     )
+
+
+def _sqlite_primary_key(schema, table_name):
+    for column in schema[table_name]["columns"]:
+        if column.get("primary_key"):
+            return column["name"]
+    for column in schema[table_name]["columns"]:
+        if column["name"].lower() in {"id", f"{table_name.lower()}_id"}:
+            return column["name"]
+    return None
+
+
+def _sqlite_resolve_entity(question, path: Path, entity_type=None):
+    schema = _schema(path)
+    row_counts = _sqlite_row_counts(path, schema)
+    for table, row_count in row_counts.items():
+        schema[table]["row_count"] = row_count
+    catalog = business_catalog.build(
+        schema,
+        source_type="sqlite",
+        row_counts=row_counts,
+        fingerprint=business_catalog.fingerprint(schema),
+    )
+    semantic_plan = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    extracted = entity_resolver.candidates_from_plan(semantic_plan)
+    retrieval = schema_retriever.retrieve(
+        question=question,
+        schema=schema,
+        row_counts=row_counts,
+        catalog=catalog,
+        schema_fingerprint=catalog["schema_fingerprint"],
+        semantic_plan=semantic_plan,
+        candidate_limit=12,
+    )
+    matches = []
+    with _connect_read_only(path) as connection:
+        for item in extracted:
+            entity_text = item["text"]
+            item_type = entity_type
+            predicted_types = item.get("predicted_types") or []
+            if item_type is None and len(predicted_types) == 1:
+                item_type = predicted_types[0]
+            preferred_candidates = entity_resolver.candidate_columns(
+                schema,
+                catalog=catalog,
+                entity_type=item_type,
+                max_columns=120,
+                relevant_tables=retrieval.selected_tables,
+                relevant_columns=retrieval.relevant_columns,
+            )
+            fallback_candidates = entity_resolver.candidate_columns(
+                schema,
+                catalog=catalog,
+                entity_type=item_type,
+                max_columns=120,
+            )
+            mention_matches = []
+            search_stages = [preferred_candidates]
+            if retrieval.selected_tables:
+                search_stages.append(fallback_candidates)
+            for candidates in search_stages:
+                if mention_matches:
+                    break
+                for candidate in candidates:
+                    table = candidate["table"]
+                    column = candidate["column"]
+                    variants = entity_resolver.lookup_variants(entity_text, candidate.get("entity_type"))
+                    normalized_variants = [entity_resolver.normalize(value) for value in variants]
+                    compact_variants = [entity_resolver.compact(value) for value in variants]
+                    like_terms = list(dict.fromkeys(
+                        term
+                        for normalized in normalized_variants
+                        for term in normalized.split()
+                        if len(term) >= 2
+                    ))[:6]
+                    pk = _sqlite_primary_key(schema, table)
+                    quoted_table = _quote_identifier(table)
+                    quoted_column = _quote_identifier(column)
+                    value_expr = f"CAST({quoted_column} AS TEXT)"
+                    normalized_expr = (
+                        f"LOWER(TRIM(REPLACE(REPLACE(REPLACE({value_expr}, '-', ' '), '_', ' '), '.', ' ')))"
+                    )
+                    compact_expr = (
+                        f"LOWER(REPLACE(REPLACE(REPLACE(REPLACE(TRIM({value_expr}), '-', ''), '_', ''), '.', ''), ' ', ''))"
+                    )
+                    conditions = []
+                    params = []
+                    for variant, normalized, compact in zip(variants, normalized_variants, compact_variants):
+                        conditions.extend([
+                            f"LOWER(TRIM({value_expr})) = ?",
+                            f"{normalized_expr} = ?",
+                            f"{compact_expr} = ?",
+                        ])
+                        params.extend([variant.strip().lower(), normalized, compact])
+                    for term in like_terms:
+                        conditions.append(f"LOWER({value_expr}) LIKE ?")
+                        params.append(f"%{term}%")
+                    select_pk = _quote_identifier(pk) if pk else "NULL"
+                    rows = connection.execute(
+                        f"""
+                        SELECT {select_pk} AS __pk, {quoted_column} AS __value
+                        FROM {quoted_table}
+                        WHERE {quoted_column} IS NOT NULL
+                          AND ({' OR '.join(conditions)})
+                        LIMIT 10
+                        """,
+                        params,
+                    ).fetchall()
+                    for row in rows:
+                        scored = entity_resolver.score_resolved_value(
+                            entity_text,
+                            row[1],
+                            candidate.get("entity_type"),
+                        )
+                        if not scored:
+                            continue
+                        confidence, match_type = scored
+                        mention_matches.append({
+                            "entity": entity_text,
+                            "entity_type": candidate.get("entity_type") or "reference",
+                            "table": table,
+                            "column": column,
+                            "primary_key_column": pk,
+                            "primary_key": row[0],
+                            "primary_key_value": row[0],
+                            "value": row[1],
+                            "matched_value": row[1],
+                            "confidence": min(99, confidence + min(8, candidate.get("score", 0) // 15)),
+                            "match_type": match_type,
+                            "source": "value_lookup",
+                        })
+            matches.extend(mention_matches)
+    matches = sorted(matches, key=lambda item: (-item["confidence"], item["table"], item["column"]))[:12]
+    return {
+        "question": question,
+        "extracted_entities": extracted,
+        "matches": matches,
+        "ambiguous": len({(m["entity_type"], m["table"], str(m["primary_key"])) for m in matches[:3]}) > 1 and len(matches) > 1,
+        "schema_fingerprint": catalog["schema_fingerprint"],
+        "catalog_version": catalog["catalog_version"],
+        "resolved_database": str(path),
+        "source_type": "sqlite",
+        "semantic_plan": semantic_plan,
+        "searched_tables_first": retrieval.selected_tables,
+    }
 
 
 def _validate(sql: str, path: Path) -> dict:
@@ -341,9 +490,97 @@ def analyze_question(
         "question": question,
         "candidates": result["candidates"],
         "missing_kpis": result["missing_kpis"],
+        "metrics": result.get("metrics", []),
+        "dimensions": result.get("dimensions", []),
+        "ambiguity": result.get("ambiguity", []),
+        "catalog_version": result.get("catalog_version"),
         "schema_fingerprint": result["schema_fingerprint"],
         "resolved_database": resolved_database,
         "source_type": source["source_type"],
+    }
+
+
+@mcp.tool()
+def resolve_entity(
+    question: str,
+    entity_type: str | None = None,
+    session_id: str | None = None,
+    database_path: str | None = None,
+    source_type: str | None = None,
+) -> dict:
+    """Resolve business object names/codes in a question to real table rows without an LLM."""
+    source = _source(database_path, session_id, source_type)
+    if source["source_type"] == "mysql":
+        result = mysql_adapter.resolve_entity(question, source["database"], entity_type=entity_type)
+        return {
+            **result,
+            "resolved_database": source["database"],
+            "source_type": "mysql",
+        }
+    if source["source_type"] == "sqlserver":
+        return {
+            "question": question,
+            "extracted_entities": entity_resolver.extract(question),
+            "matches": [],
+            "ambiguous": False,
+            "resolved_database": source.get("database"),
+            "source_type": "sqlserver",
+            "limitations": ["SQL Server entity value lookup is not enabled in this MCP tool yet."],
+        }
+    return _sqlite_resolve_entity(question, source["path"], entity_type=entity_type)
+
+
+@mcp.tool()
+def resolve_entities(
+    question: str,
+    session_id: str | None = None,
+    database_path: str | None = None,
+    source_type: str | None = None,
+) -> dict:
+    """Resolve multiple entities, dates, filters, and relationships in one question without an LLM."""
+    source = _source(database_path, session_id, source_type)
+    if source["source_type"] == "mysql":
+        result = mysql_adapter.resolve_entities(question, source["database"])
+        return {
+            **result,
+            "resolved_database": source["database"],
+            "source_type": "mysql",
+        }
+    if source["source_type"] == "sqlserver":
+        extracted = entity_resolver.extract(question)
+        multi = entity_resolver.build_multi_result(
+            question,
+            [{"mention": item["text"], "matches": [], "ambiguous": False} for item in extracted],
+        )
+        return {
+            **multi,
+            "question": question,
+            "extracted_entities": extracted,
+            "resolved_database": source.get("database"),
+            "source_type": "sqlserver",
+            "limitations": ["SQL Server multi-entity value lookup is not enabled in this MCP tool yet."],
+        }
+    single = _sqlite_resolve_entity(question, source["path"])
+    semantic_plan = single.get("semantic_plan") or semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    mention_results = []
+    grouped = {}
+    for match in single.get("matches", []):
+        grouped.setdefault(match["entity"], []).append(match)
+    extracted = single.get("extracted_entities", [])
+    for item in extracted:
+        matches = grouped.get(item["text"], [])
+        mention_results.append({
+            "mention": item["text"],
+            "matches": matches,
+            "ambiguous": len(matches) > 1,
+            "predicted_types": item.get("predicted_types", []),
+            "essential": entity_resolver.mention_is_essential(item["text"], semantic_plan),
+        })
+    multi = entity_resolver.build_multi_result(question, mention_results, semantic_plan=semantic_plan)
+    return {
+        **single,
+        **multi,
+        "source_type": "sqlite",
     }
 
 
@@ -358,10 +595,15 @@ def database_overview(
     catalog = _catalog_for_source(source)
     return {
         "source_type": source["source_type"],
+        "catalog_version": catalog["catalog_version"],
+        "database_fingerprint": catalog["database_fingerprint"],
         "schema_fingerprint": catalog["schema_fingerprint"],
         "table_count": catalog["table_count"],
         "detected_modules": list(catalog["entities"].keys())[:12],
         "important_tables": catalog["important_tables"][:12],
+        "metrics": catalog["metrics"][:20],
+        "dimensions": catalog["dimensions"][:20],
+        "ambiguity": catalog["ambiguity"][:12],
         "unsupported_kpis": catalog["unsupported_kpis"],
         "summary": catalog["summary"],
     }
@@ -378,15 +620,22 @@ def discover_business_entities(
     catalog = _catalog_for_source(source)
     return {
         "source_type": source["source_type"],
+        "catalog_version": catalog["catalog_version"],
+        "database_fingerprint": catalog["database_fingerprint"],
         "schema_fingerprint": catalog["schema_fingerprint"],
         "entities": catalog["entities"],
         "aliases": catalog["aliases"],
+        "metrics": catalog["metrics"][:40],
+        "dimensions": catalog["dimensions"][:40],
+        "ambiguity": catalog["ambiguity"][:12],
         "unsupported_kpis": catalog["unsupported_kpis"],
     }
 
 
 @mcp.tool()
 def discover_join_paths(
+    start_tables: list[str] | None = None,
+    end_tables: list[str] | None = None,
     session_id: str | None = None,
     database_path: str | None = None,
     source_type: str | None = None,
@@ -394,10 +643,23 @@ def discover_join_paths(
     """Return declared and inferred join paths with evidence/confidence."""
     source = _source(database_path, session_id, source_type)
     catalog = _catalog_for_source(source)
+    paths = []
+    if start_tables and end_tables:
+        if source["source_type"] == "mysql":
+            schema = mysql_adapter.inspect_schema(source["database"])
+        elif source["source_type"] == "sqlserver":
+            schema = sqlserver_adapter.inspect_schema()
+        else:
+            schema = _schema(source["path"])
+        paths = relationship_discovery.find_paths(schema, start_tables, end_tables)
     return {
         "source_type": source["source_type"],
+        "catalog_version": catalog["catalog_version"],
+        "database_fingerprint": catalog["database_fingerprint"],
         "schema_fingerprint": catalog["schema_fingerprint"],
+        "relationship_graph": catalog["relationship_graph"],
         "join_paths": catalog["join_paths"],
+        "paths": paths,
     }
 
 

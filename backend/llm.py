@@ -379,7 +379,7 @@ Rules:
 6. Do not use cross-database names like database.schema.table.
 7. Prefer explicit column names over SELECT *.
 8. Add TOP for broad lists or rankings.
-9. Infer joins from shared ID columns when foreign keys are not declared.
+9. If the schema prompt is marked AUTHORITATIVE ERP SQL CONTEXT, use only its approved relationships and never infer another join. Otherwise infer joins cautiously from schema evidence.
 """
 
         return _clean_sql(self._generate(prompt, "generate_sql"))
@@ -389,7 +389,7 @@ Rules:
 You are a senior data analyst and MySQL engineer.
 
 Task:
-Convert the user's natural-language question into one safe MySQL SELECT query.
+Interpret the user's natural-language question carefully, map vague business words to the most relevant tables/columns, then write one safe MySQL SELECT query.
 
 Database schema:
 {schema_prompt}
@@ -410,6 +410,17 @@ Rules:
 7. Prefer explicit column names over SELECT *.
 8. Add LIMIT for broad lists or rankings.
 9. Infer joins from shared ID columns when foreign keys are not declared.
+10. For "how many", "count", or "are there only N" questions, return a COUNT query, not a sample list.
+11. For "top/highest/largest by value/amount", rank by the relevant value/amount column from the entity table when it exists.
+12. When multiple tables look relevant, compare their names, columns, row-count hints, and master-table patterns such as _mst/_master before choosing.
+13. Prefer populated master/entity tables over empty lookalike tables.
+14. If date columns are varchar/text and appear to store DD-MM-YYYY values, compare dates with STR_TO_DATE(NULLIF(column, ''), '%%d-%%m-%%Y').
+15. If the prompt includes a resolved entity with a primary_key, anchor the query around that table/key instead of searching a different table by name.
+16. For manager-style vague wording, choose the strongest schema-supported interpretation; if no safe interpretation exists, return a harmless SELECT that shows zero rows from the most relevant table rather than inventing unavailable fields.
+17. Preserve the required query plan contract exactly: requested entity filters, date filters, status filters, grouping, ordering direction, aggregation, and LIMIT must appear in the SQL when present.
+18. Do not answer a related question by dropping a requested project, site, vendor, client, employee, material, status, date range, or top/bottom limit.
+19. In authoritative ERP context, business definitions and aggregation grain override guesses based on table or column names.
+20. In authoritative ERP context, use only the canonical DDL tables and columns and obey every duplicate-safety or pre-aggregation rule.
 """
 
         return _clean_sql(self._generate(prompt, "generate_sql"))
@@ -432,7 +443,8 @@ Rules:
 3. Use a short summary first.
 4. Then use bullets for modules, important tables, and available analysis areas.
 5. Mention limitations briefly if the metadata is incomplete.
-6. Keep it under 180 words.
+6. Do not claim profit, loss, or profitability analysis is available unless the metadata clearly shows cost, expense, margin, or profit fields.
+7. Keep it under 180 words.
 """
 
         return _clean_answer(self._generate(prompt, "metadata_answer"))
@@ -461,9 +473,49 @@ Rules:
 9. Do not sound robotic. Be clear, warm, and concise.
 10. Do not invent anything outside the result.
 11. Add "Limitations" only when the data cannot support the requested KPI.
+12. Format money as Indian rupees using ₹ or INR unless the result explicitly contains a different currency.
 """
 
         return _clean_answer(self._generate(prompt, "generate_answer"))
+
+    def generate_verified_answer(
+        self,
+        question,
+        facts,
+        execution_receipt,
+    ):
+        prompt = f"""
+You are explaining verified ERP query results to a manager.
+
+User question:
+{question}
+
+Verified facts:
+{json.dumps(facts, indent=2, sort_keys=True, default=str)}
+
+Execution receipt:
+{json.dumps(execution_receipt, indent=2, sort_keys=True, default=str)}
+
+Rules:
+1. Answer only from the verified facts. Never add a number, entity, trend, cause, KPI, or recommendation that is absent from those facts.
+2. Preserve exact counts, ordering, labels, dates, and values.
+3. If row_count is zero, clearly say no matching records were returned. Do not claim the database is empty and do not suggest different facts exist.
+4. Keep the tone natural, short, and human.
+5. Start with one direct sentence, not a formal report heading.
+6. Use 2 to 4 short bullets for what matters.
+7. Use a compact markdown table when multiple rows are present.
+8. Add limitations only when they matter for interpretation.
+9. Recommendations are allowed only when directly supported by the returned rows; state the supporting fact.
+10. Do not reinterpret one metric as another. Billing is not profit, purchase value is not cost, and revenue is not cash collected unless the verified columns explicitly say so.
+11. Format monetary values as Indian rupees using INR unless the facts explicitly identify another currency.
+12. Do not mention prompts, tokens, dataframes, internal agents, or hidden implementation.
+13. Do not expose table names, column names, SQL, hashes, or the execution receipt in the manager-facing answer.
+14. Avoid long paragraphs and avoid headings like "Short summary" unless they are already present in the facts.
+"""
+
+        return _clean_answer(
+            self._generate(prompt, "generate_verified_answer")
+        )
 
     def rewrite_failed_sql(self, question, schema_prompt, failed_sql, error_message):
         prompt = f"""
@@ -508,6 +560,9 @@ Validation or database error:
 Return only one corrected MySQL SELECT or WITH query.
 Do not explain, do not use markdown, and do not include unsafe SQL.
 Use LIMIT for broad result sets.
+Use the exact table aliases and columns from the schema. If an error says an unknown column is on one alias, move that column to the joined table where it actually exists.
+Preserve every required query plan constraint in the schema prompt, including entity filters, date filters, status filters, grouping, ordering direction, aggregation, and LIMIT.
+If the prompt is marked AUTHORITATIVE ERP SQL CONTEXT, use only its canonical DDL and approved relationships. Do not invent a different table, column, metric, or join while repairing.
 """
 
         return _clean_sql(self._generate(prompt, "rewrite_failed_sql"))

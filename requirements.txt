@@ -9,5 +9,6 @@ truststore
 mcp
 redis
 sqlalchemy
+sqlglot
 pyodbc
 pymysql

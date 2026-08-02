@@ -1,0 +1,798 @@
+[
+  {
+    "aggregation": "count",
+    "alternative_candidates": [
+      "COUNT(*)"
+    ],
+    "ambiguity_notes": "Status code meaning is unresolved.",
+    "applicable_module": "projects",
+    "approved_joins": [],
+    "concept_id": "project_count",
+    "confidence": 0.99,
+    "data_grain": "one row per project",
+    "date_field": "project_mst.project_start_date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Count project_mst before joining one-to-many transaction tables."
+    ],
+    "expected_output": {
+      "columns": [
+        "project_count"
+      ],
+      "grain": "single scalar row"
+    },
+    "formula": "COUNT(project_mst.project_id)",
+    "label": "Project count",
+    "metric_definition": "Number of project master records.",
+    "null_handling": "COUNT(project_id) excludes null identifiers; no status label is inferred from numeric code 2.",
+    "preferred_column": "project_id",
+    "preferred_table": "project_mst",
+    "reference_sql": "SELECT COUNT(project_id) AS project_count FROM project_mst",
+    "source_columns": [
+      "project_mst.project_id"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": "project_mst.status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      2
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum for totals; no aggregation for project ranking",
+    "alternative_candidates": [
+      "estimated_value",
+      "compeny_project_value"
+    ],
+    "ambiguity_notes": "Project value is not actual project cost or profit.",
+    "applicable_module": "projects",
+    "approved_joins": [],
+    "concept_id": "project_value",
+    "confidence": 0.99,
+    "data_grain": "one value per project",
+    "date_field": "project_mst.project_start_date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Never sum project_value after joining project_mst to a one-to-many fact table without pre-aggregating."
+    ],
+    "expected_output": {
+      "columns": [
+        "project_id",
+        "project_name",
+        "project_value"
+      ],
+      "grain": "one row per project"
+    },
+    "formula": "CAST(NULLIF(TRIM(project_mst.project_value), '') AS DECIMAL(20,2))",
+    "label": "Project value",
+    "metric_definition": "Contract project value stored on the project master.",
+    "null_handling": "Blank values become NULL; rankings exclude NULL and totals use COALESCE(..., 0).",
+    "preferred_column": "project_value",
+    "preferred_table": "project_mst",
+    "reference_sql": "SELECT project_id, project_name, CAST(NULLIF(TRIM(project_value), '') AS DECIMAL(20,2)) AS project_value FROM project_mst WHERE NULLIF(TRIM(project_value), '') IS NOT NULL ORDER BY project_value DESC LIMIT 10",
+    "source_columns": [
+      "project_mst.project_id",
+      "project_mst.project_name",
+      "project_mst.project_value"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": "project_mst.status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      2
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "bill_amount",
+      "total_amount"
+    ],
+    "ambiguity_notes": "Use bill_amount only when the question explicitly asks for bill amount. Numeric status meanings are unresolved.",
+    "applicable_module": "billing",
+    "approved_joins": [
+      "client_bill_raising.project_id = project_mst.project_id"
+    ],
+    "concept_id": "gross_billing",
+    "confidence": 0.98,
+    "data_grain": "one amount per billing header",
+    "date_field": "client_bill_raising.bill_date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Aggregate billing headers before joining BOQ details.",
+      "Do not sum gross_bill_value after a one-to-many detail join."
+    ],
+    "expected_output": {
+      "columns": [
+        "project_name",
+        "gross_billing"
+      ],
+      "grain": "one row per project"
+    },
+    "formula": "SUM(COALESCE(client_bill_raising.gross_bill_value, 0))",
+    "label": "Gross billing",
+    "metric_definition": "Gross value recorded on each client billing header.",
+    "null_handling": "NULL gross values contribute zero; blank or invalid bill dates are excluded from date-filtered queries.",
+    "preferred_column": "gross_bill_value",
+    "preferred_table": "client_bill_raising",
+    "reference_sql": "SELECT p.project_name, SUM(COALESCE(b.gross_bill_value, 0)) AS gross_billing FROM client_bill_raising b JOIN project_mst p ON b.project_id = p.project_id GROUP BY p.project_id, p.project_name ORDER BY gross_billing DESC LIMIT 10",
+    "source_columns": [
+      "client_bill_raising.billing_id",
+      "client_bill_raising.project_id",
+      "client_bill_raising.gross_bill_value"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": "client_bill_raising.billing_status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      0,
+      2,
+      3
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "gross_bill_value"
+    ],
+    "ambiguity_notes": "Bill amount and gross billing are separate verified metrics.",
+    "applicable_module": "billing",
+    "approved_joins": [
+      "client_bill_raising.project_id = project_mst.project_id"
+    ],
+    "concept_id": "bill_amount",
+    "confidence": 0.97,
+    "data_grain": "one amount per billing header",
+    "date_field": "client_bill_raising.bill_date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Aggregate billing headers before joining BOQ details."
+    ],
+    "expected_output": {
+      "columns": [
+        "month",
+        "bill_amount"
+      ],
+      "grain": "one row per month"
+    },
+    "formula": "SUM(COALESCE(client_bill_raising.bill_amount, 0))",
+    "label": "Bill amount",
+    "metric_definition": "Base bill amount recorded on each client billing header.",
+    "null_handling": "NULL bill amounts contribute zero; invalid text dates are excluded from period filters.",
+    "preferred_column": "bill_amount",
+    "preferred_table": "client_bill_raising",
+    "reference_sql": "SELECT DATE_FORMAT(STR_TO_DATE(NULLIF(TRIM(bill_date), ''), '%d-%m-%Y'), '%Y-%m') AS month, SUM(COALESCE(bill_amount, 0)) AS bill_amount FROM client_bill_raising WHERE STR_TO_DATE(NULLIF(TRIM(bill_date), ''), '%d-%m-%Y') IS NOT NULL GROUP BY month ORDER BY month",
+    "source_columns": [
+      "client_bill_raising.billing_id",
+      "client_bill_raising.project_id",
+      "client_bill_raising.bill_amount"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": "client_bill_raising.billing_status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      0,
+      2,
+      3
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count",
+    "alternative_candidates": [
+      "po_id"
+    ],
+    "ambiguity_notes": "po_no is mostly null in the current data; po_form_id is the stable identifier.",
+    "applicable_module": "purchase_orders",
+    "approved_joins": [],
+    "concept_id": "purchase_order_count",
+    "confidence": 0.99,
+    "data_grain": "one row per purchase-order header",
+    "date_field": "po_form.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Count po_form before joining po_items."
+    ],
+    "expected_output": {
+      "columns": [
+        "purchase_order_count"
+      ],
+      "grain": "single scalar row"
+    },
+    "formula": "COUNT(po_form.po_form_id)",
+    "label": "Purchase order count",
+    "metric_definition": "Number of purchase-order header records.",
+    "null_handling": "COUNT(po_form_id) excludes null identifiers.",
+    "preferred_column": "po_form_id",
+    "preferred_table": "po_form",
+    "reference_sql": "SELECT COUNT(po_form_id) AS purchase_order_count FROM po_form",
+    "source_columns": [
+      "po_form.po_form_id"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "po_items.total_price",
+      "po_form.sub_total"
+    ],
+    "ambiguity_notes": "Material-level purchase value uses line totals and a different grain.",
+    "applicable_module": "purchase_orders",
+    "approved_joins": [],
+    "concept_id": "purchase_value",
+    "confidence": 0.98,
+    "data_grain": "one amount per purchase-order header",
+    "date_field": "po_form.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Never sum po_form.total_value after joining po_items unless PO headers are pre-aggregated."
+    ],
+    "expected_output": {
+      "columns": [
+        "po_form_id",
+        "vendor_name",
+        "purchase_value"
+      ],
+      "grain": "one row per purchase order"
+    },
+    "formula": "SUM(COALESCE(po_form.total_value, 0))",
+    "label": "Purchase value",
+    "metric_definition": "Total value recorded on each purchase-order header.",
+    "null_handling": "NULL total values contribute zero; blank vendor names are grouped as unknown only when explicitly requested.",
+    "preferred_column": "total_value",
+    "preferred_table": "po_form",
+    "reference_sql": "SELECT po_form_id, vendor_name, COALESCE(total_value, 0) AS purchase_value FROM po_form ORDER BY purchase_value DESC LIMIT 10",
+    "source_columns": [
+      "po_form.po_form_id",
+      "po_form.vendor_name",
+      "po_form.total_value"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum grouped by vendor",
+    "alternative_candidates": [
+      "po_items.total_price"
+    ],
+    "ambiguity_notes": "Names are denormalized; spelling variants may represent the same vendor.",
+    "applicable_module": "vendors",
+    "approved_joins": [],
+    "concept_id": "vendor_purchase_value",
+    "confidence": 0.97,
+    "data_grain": "one output row per normalized vendor name",
+    "date_field": "po_form.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Use PO headers directly; joining line items can duplicate header totals."
+    ],
+    "expected_output": {
+      "columns": [
+        "vendor_name",
+        "purchase_value"
+      ],
+      "grain": "one row per vendor name"
+    },
+    "formula": "SUM(COALESCE(po_form.total_value, 0)) GROUP BY po_form.vendor_name",
+    "label": "Purchase value by vendor",
+    "metric_definition": "Sum of purchase-order header total values grouped by vendor name.",
+    "null_handling": "Exclude NULL and blank vendor names; NULL total values contribute zero.",
+    "preferred_column": "total_value",
+    "preferred_table": "po_form",
+    "reference_sql": "SELECT TRIM(vendor_name) AS vendor_name, SUM(COALESCE(total_value, 0)) AS purchase_value FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_value DESC LIMIT 10",
+    "source_columns": [
+      "po_form.po_form_id",
+      "po_form.vendor_name",
+      "po_form.total_value"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "po_final_price.qty"
+    ],
+    "ambiguity_notes": "Numeric po_items.status contains only 0 and has no verified business label.",
+    "applicable_module": "purchase_orders",
+    "approved_joins": [
+      "po_items.po_id = po_form.po_id"
+    ],
+    "concept_id": "ordered_quantity",
+    "confidence": 0.95,
+    "data_grain": "one quantity per purchase-order line",
+    "date_field": "po_form.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Aggregate PO lines before joining another one-to-many detail source."
+    ],
+    "expected_output": {
+      "columns": [
+        "is_po_item_status",
+        "ordered_quantity"
+      ],
+      "grain": "one row per text PO-item status"
+    },
+    "formula": "SUM(COALESCE(po_items.qty, 0))",
+    "label": "Ordered quantity",
+    "metric_definition": "Quantity recorded on each purchase-order line.",
+    "null_handling": "NULL quantities contribute zero; NULL status remains unclassified.",
+    "preferred_column": "qty",
+    "preferred_table": "po_items",
+    "reference_sql": "SELECT is_po_item_status, SUM(COALESCE(qty, 0)) AS ordered_quantity FROM po_items GROUP BY is_po_item_status ORDER BY ordered_quantity DESC",
+    "source_columns": [
+      "po_items.po_item_id",
+      "po_items.po_id",
+      "po_items.qty"
+    ],
+    "source_of_evidence": "verified benchmark and live distinct-value inspection",
+    "status_field": "po_items.is_po_item_status",
+    "status_value_meanings_verified": true,
+    "valid_status_values": [
+      "open",
+      "close"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "total_quanity"
+    ],
+    "ambiguity_notes": "No verified inventory snapshot date exists.",
+    "applicable_module": "inventory",
+    "approved_joins": [
+      "inventory_master.sub_material_id = sub_material.sub_material_id"
+    ],
+    "concept_id": "current_stock",
+    "confidence": 0.94,
+    "data_grain": "one balance row per inventory/material/store combination",
+    "date_field": null,
+    "date_storage_format": null,
+    "duplicate_risk_rules": [
+      "Group inventory rows before joining transaction histories."
+    ],
+    "expected_output": {
+      "columns": [
+        "sub_material_name",
+        "current_stock"
+      ],
+      "grain": "one row per material"
+    },
+    "formula": "SUM(COALESCE(inventory_master.available_quantity, 0))",
+    "label": "Current stock",
+    "metric_definition": "Available quantity recorded on inventory balance rows.",
+    "null_handling": "NULL available quantities contribute zero.",
+    "preferred_column": "available_quantity",
+    "preferred_table": "inventory_master",
+    "reference_sql": "SELECT sm.sub_material_name, SUM(COALESCE(i.available_quantity, 0)) AS current_stock FROM inventory_master i JOIN sub_material sm ON i.sub_material_id = sm.sub_material_id GROUP BY sm.sub_material_id, sm.sub_material_name ORDER BY current_stock DESC LIMIT 10",
+    "source_columns": [
+      "inventory_master.inventory_master_id",
+      "inventory_master.sub_material_id",
+      "inventory_master.available_quantity"
+    ],
+    "source_of_evidence": "verified benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "requested_quantity"
+    ],
+    "ambiguity_notes": "Issued quantity is not purchase quantity or current stock.",
+    "applicable_module": "stores",
+    "approved_joins": [
+      "store_material_usage_quantity.store_usage_quantity_master_id = store_usage_quantity_master.store_usage_quantity_master_id",
+      "store_usage_quantity_master.project_id = project_mst.project_id",
+      "store_material_usage_quantity.sub_material_id = sub_material.sub_material_id"
+    ],
+    "concept_id": "material_issued_quantity",
+    "confidence": 0.97,
+    "data_grain": "one quantity per material issue detail",
+    "date_field": "store_usage_quantity_master.issued_date",
+    "date_storage_format": "%d-%m-%Y after TRIM",
+    "duplicate_risk_rules": [
+      "Keep the material-issue detail grain and do not join additional detail tables before aggregation."
+    ],
+    "expected_output": {
+      "columns": [
+        "project_name",
+        "sub_material_name",
+        "issued_quantity"
+      ],
+      "grain": "one row per project and material"
+    },
+    "formula": "SUM(COALESCE(store_material_usage_quantity.issued_quantity, 0))",
+    "label": "Material issued quantity",
+    "metric_definition": "Quantity issued on each store material-usage detail row.",
+    "null_handling": "NULL issued quantities contribute zero; blank or invalid issued dates are excluded from date filters.",
+    "preferred_column": "issued_quantity",
+    "preferred_table": "store_material_usage_quantity",
+    "reference_sql": "SELECT p.project_name, sm.sub_material_name, SUM(COALESCE(d.issued_quantity, 0)) AS issued_quantity FROM store_material_usage_quantity d JOIN store_usage_quantity_master h ON d.store_usage_quantity_master_id = h.store_usage_quantity_master_id JOIN project_mst p ON h.project_id = p.project_id JOIN sub_material sm ON d.sub_material_id = sm.sub_material_id GROUP BY p.project_id, p.project_name, sm.sub_material_id, sm.sub_material_name ORDER BY issued_quantity DESC LIMIT 10",
+    "source_columns": [
+      "store_material_usage_quantity.store_usage_quantity_master_id",
+      "store_material_usage_quantity.sub_material_id",
+      "store_material_usage_quantity.issued_quantity"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "average",
+    "alternative_candidates": [
+      "goods_receipt_cum_insp_note.base_price",
+      "po_items.item_unit_price"
+    ],
+    "ambiguity_notes": "Ask for clarification when the user says cost without naming issue price, PO price or GRN price.",
+    "applicable_module": "stores",
+    "approved_joins": [
+      "store_material_usage_quantity.store_usage_quantity_master_id = store_usage_quantity_master.store_usage_quantity_master_id",
+      "store_material_usage_quantity.sub_material_id = sub_material.sub_material_id"
+    ],
+    "concept_id": "material_issue_price",
+    "confidence": 0.9,
+    "data_grain": "one price observation per material issue detail",
+    "date_field": "store_usage_quantity_master.issued_date",
+    "date_storage_format": "%d-%m-%Y after TRIM",
+    "duplicate_risk_rules": [
+      "Do not multiply issue detail rows through additional one-to-many joins."
+    ],
+    "expected_output": {
+      "columns": [
+        "sub_material_name",
+        "average_base_charge"
+      ],
+      "grain": "one row per material"
+    },
+    "formula": "AVG(NULLIF(store_material_usage_quantity.base_charge, 0))",
+    "label": "Material issue base charge",
+    "metric_definition": "Base charge stored on material issue detail rows.",
+    "null_handling": "NULL and zero base charges are excluded from averages.",
+    "preferred_column": "base_charge",
+    "preferred_table": "store_material_usage_quantity",
+    "reference_sql": "SELECT sm.sub_material_name, AVG(NULLIF(d.base_charge, 0)) AS average_base_charge FROM store_material_usage_quantity d JOIN sub_material sm ON d.sub_material_id = sm.sub_material_id GROUP BY sm.sub_material_id, sm.sub_material_name ORDER BY average_base_charge DESC LIMIT 10",
+    "source_columns": [
+      "store_material_usage_quantity.sub_material_id",
+      "store_material_usage_quantity.base_charge"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "sum",
+    "alternative_candidates": [
+      "qty_as_per_invoice",
+      "rec_qnty_per_invoice"
+    ],
+    "ambiguity_notes": "Use actual received quantity, not invoice quantity.",
+    "applicable_module": "grn",
+    "approved_joins": [
+      "goods_receipt_cum_insp_note.grn_project_id = project_mst.project_id",
+      "goods_receipt_cum_insp_note.grn_sub_material_id = sub_material.sub_material_id"
+    ],
+    "concept_id": "received_quantity",
+    "confidence": 0.97,
+    "data_grain": "one quantity per GRN material detail",
+    "date_field": "goods_receipt_cum_insp_note.grn_date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Aggregate GRN detail rows before joining any additional one-to-many source."
+    ],
+    "expected_output": {
+      "columns": [
+        "project_name",
+        "sub_material_name",
+        "received_quantity"
+      ],
+      "grain": "one row per project and material"
+    },
+    "formula": "SUM(COALESCE(goods_receipt_cum_insp_note.qty_actual_received, 0))",
+    "label": "GRN received quantity",
+    "metric_definition": "Actual quantity received on each GRN inspection detail row.",
+    "null_handling": "NULL received quantities contribute zero; invalid text dates are excluded from date filters.",
+    "preferred_column": "qty_actual_received",
+    "preferred_table": "goods_receipt_cum_insp_note",
+    "reference_sql": "SELECT p.project_name, sm.sub_material_name, SUM(COALESCE(g.qty_actual_received, 0)) AS received_quantity FROM goods_receipt_cum_insp_note g JOIN project_mst p ON g.grn_project_id = p.project_id JOIN sub_material sm ON g.grn_sub_material_id = sm.sub_material_id GROUP BY p.project_id, p.project_name, sm.sub_material_id, sm.sub_material_name ORDER BY received_quantity DESC LIMIT 10",
+    "source_columns": [
+      "goods_receipt_cum_insp_note.grcin_id",
+      "goods_receipt_cum_insp_note.grn_project_id",
+      "goods_receipt_cum_insp_note.grn_sub_material_id",
+      "goods_receipt_cum_insp_note.qty_actual_received"
+    ],
+    "source_of_evidence": "verified benchmark and live ERP execution",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "distinct count",
+    "alternative_candidates": [
+      "emp_ref_id"
+    ],
+    "ambiguity_notes": "Status codes 2 and 5 have no verified active/inactive meaning.",
+    "applicable_module": "employees",
+    "approved_joins": [
+      "employee_table.department_id = department.department_id"
+    ],
+    "concept_id": "employee_count",
+    "confidence": 0.97,
+    "data_grain": "one master row per employee",
+    "date_field": null,
+    "date_storage_format": null,
+    "duplicate_risk_rules": [
+      "Use COUNT(DISTINCT employee_id) after joining attendance or other one-to-many employee facts."
+    ],
+    "expected_output": {
+      "columns": [
+        "department_name",
+        "employee_count"
+      ],
+      "grain": "one row per department"
+    },
+    "formula": "COUNT(DISTINCT employee_table.employee_id)",
+    "label": "Employee headcount",
+    "metric_definition": "Distinct employees in the employee master.",
+    "null_handling": "Null employee identifiers are excluded; employees with null department remain unassigned.",
+    "preferred_column": "employee_id",
+    "preferred_table": "employee_table",
+    "reference_sql": "SELECT d.department_name, COUNT(DISTINCT e.employee_id) AS employee_count FROM employee_table e LEFT JOIN department d ON e.department_id = d.department_id GROUP BY d.department_id, d.department_name ORDER BY employee_count DESC",
+    "source_columns": [
+      "employee_table.employee_id",
+      "employee_table.department_id"
+    ],
+    "source_of_evidence": "verified benchmark and live distinct-value inspection",
+    "status_field": "employee_table.emp_status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      2,
+      5
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count",
+    "alternative_candidates": [],
+    "ambiguity_notes": "Attendance type codes P, CW, CL and OD are observed values but their full business labels are not yet verified.",
+    "applicable_module": "attendance",
+    "approved_joins": [
+      "emp_attendance_register.employee_id = employee_table.employee_id"
+    ],
+    "concept_id": "attendance_count",
+    "confidence": 0.94,
+    "data_grain": "one attendance register row",
+    "date_field": "emp_attendance_register.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Count attendance rows before joining another employee detail source."
+    ],
+    "expected_output": {
+      "columns": [
+        "emp_name",
+        "attendance_count"
+      ],
+      "grain": "one row per employee"
+    },
+    "formula": "COUNT(emp_attendance_register.emp_attendance_register_id)",
+    "label": "Attendance record count",
+    "metric_definition": "Number of attendance register records.",
+    "null_handling": "Null attendance identifiers are excluded; null attendance type remains unclassified.",
+    "preferred_column": "emp_attendance_register_id",
+    "preferred_table": "emp_attendance_register",
+    "reference_sql": "SELECT e.emp_name, COUNT(a.emp_attendance_register_id) AS attendance_count FROM emp_attendance_register a JOIN employee_table e ON a.employee_id = e.employee_id GROUP BY e.employee_id, e.emp_name ORDER BY attendance_count DESC LIMIT 10",
+    "source_columns": [
+      "emp_attendance_register.emp_attendance_register_id",
+      "emp_attendance_register.employee_id",
+      "emp_attendance_register.attendence_type_name"
+    ],
+    "source_of_evidence": "verified benchmark and live distinct-value inspection",
+    "status_field": "emp_attendance_register.approval_status",
+    "status_value_meanings_verified": false,
+    "valid_status_values": [
+      0,
+      1,
+      2
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count",
+    "applicable_module": "vendors",
+    "approved_joins": [],
+    "concept_id": "vendor_count",
+    "confidence": 0.98,
+    "data_grain": "one row per vendor master record",
+    "date_field": null,
+    "duplicate_risk_rules": [
+      "Do not count branch rows when the question asks for vendor count."
+    ],
+    "expected_output": {
+      "columns": [
+        "vendor_count"
+      ],
+      "grain": "scalar vendor count"
+    },
+    "formula": "COUNT(vendor_mst.vendor_id)",
+    "label": "Vendor count",
+    "metric_definition": "Count of vendor master rows.",
+    "null_handling": "Vendor rows are counted by vendor_id.",
+    "reference_sql": "SELECT COUNT(*) AS vendor_count FROM vendor_mst",
+    "source_columns": [
+      "vendor_mst.vendor_id"
+    ],
+    "source_of_evidence": "live ERP verification and vendor module benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "none",
+    "applicable_module": "vendors",
+    "approved_joins": [],
+    "concept_id": "vendor_details",
+    "confidence": 0.98,
+    "data_grain": "one row per vendor master record",
+    "date_field": null,
+    "duplicate_risk_rules": [
+      "Do not join PO rows for master details unless the user asks for purchases."
+    ],
+    "expected_output": {
+      "columns": [
+        "vendor_id",
+        "vendor_code",
+        "vendor_name"
+      ],
+      "grain": "one row per vendor"
+    },
+    "formula": "SELECT approved vendor_mst columns filtered by resolved vendor.",
+    "label": "Vendor details",
+    "metric_definition": "Verified descriptive fields for a vendor master record.",
+    "null_handling": "Blank contact fields remain blank.",
+    "reference_sql": "SELECT vendor_id, vendor_code, vendor_name, vendor_address, contact_person_name, contact_no, email, vendor_gst_no FROM vendor_mst WHERE vendor_id = ?",
+    "source_columns": [
+      "vendor_mst.vendor_id",
+      "vendor_mst.vendor_code",
+      "vendor_mst.vendor_name",
+      "vendor_mst.vendor_address",
+      "vendor_mst.contact_person_name",
+      "vendor_mst.contact_no",
+      "vendor_mst.email",
+      "vendor_mst.vendor_gst_no"
+    ],
+    "source_of_evidence": "live ERP verification and vendor module benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count grouped by vendor",
+    "applicable_module": "vendors",
+    "approved_joins": [],
+    "concept_id": "vendor_purchase_order_count",
+    "confidence": 0.98,
+    "data_grain": "one output row per normalized PO vendor name",
+    "date_field": "po_form.date",
+    "date_storage_format": "%d-%m-%Y",
+    "duplicate_risk_rules": [
+      "Use PO headers directly; do not join PO item rows for header count."
+    ],
+    "expected_output": {
+      "columns": [
+        "vendor_name",
+        "purchase_order_count"
+      ],
+      "grain": "one row per vendor name"
+    },
+    "formula": "COUNT(po_form.po_form_id) GROUP BY TRIM(po_form.vendor_name)",
+    "label": "Purchase order count by vendor",
+    "metric_definition": "Count of purchase-order headers grouped by vendor name.",
+    "null_handling": "Exclude NULL and blank PO vendor names.",
+    "reference_sql": "SELECT TRIM(vendor_name) AS vendor_name, COUNT(po_form_id) AS purchase_order_count FROM po_form WHERE NULLIF(TRIM(vendor_name), '') IS NOT NULL GROUP BY TRIM(vendor_name) ORDER BY purchase_order_count DESC LIMIT 10",
+    "source_columns": [
+      "po_form.po_form_id",
+      "po_form.vendor_name"
+    ],
+    "source_of_evidence": "live ERP verification and vendor module benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count distinct grouped by state",
+    "applicable_module": "vendors",
+    "approved_joins": [
+      "vendor_branch_details.vendor_id = vendor_mst.vendor_id"
+    ],
+    "concept_id": "vendor_by_state",
+    "confidence": 0.98,
+    "data_grain": "one output row per branch state",
+    "date_field": null,
+    "duplicate_risk_rules": [
+      "Count DISTINCT vendor_id because a vendor can have multiple branch rows."
+    ],
+    "expected_output": {
+      "columns": [
+        "state",
+        "vendor_count"
+      ],
+      "grain": "one row per state"
+    },
+    "formula": "COUNT(DISTINCT vendor_mst.vendor_id) GROUP BY vendor_branch_details.state",
+    "label": "Vendors by state",
+    "metric_definition": "Distinct vendor count grouped by verified vendor branch state.",
+    "null_handling": "Exclude blank state values.",
+    "reference_sql": "SELECT b.state, COUNT(DISTINCT m.vendor_id) AS vendor_count FROM vendor_mst m JOIN vendor_branch_details b ON b.vendor_id = m.vendor_id WHERE NULLIF(TRIM(b.state), '') IS NOT NULL GROUP BY b.state ORDER BY vendor_count DESC LIMIT 20",
+    "source_columns": [
+      "vendor_mst.vendor_id",
+      "vendor_branch_details.vendor_id",
+      "vendor_branch_details.state"
+    ],
+    "source_of_evidence": "live ERP verification and vendor module benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  },
+  {
+    "aggregation": "count grouped by category",
+    "applicable_module": "vendors",
+    "approved_joins": [
+      "vendor_mst.vendor_types_id = vendor_types.vendor_types_id"
+    ],
+    "concept_id": "vendor_by_category",
+    "confidence": 0.98,
+    "data_grain": "one output row per vendor category/type",
+    "date_field": null,
+    "duplicate_risk_rules": [
+      "Vendor type lookup is many-to-one; no pre-aggregation required."
+    ],
+    "expected_output": {
+      "columns": [
+        "vendor_category",
+        "vendor_count"
+      ],
+      "grain": "one row per vendor category"
+    },
+    "formula": "COUNT(vendor_mst.vendor_id) GROUP BY vendor_types.vendor_type",
+    "label": "Vendors by category",
+    "metric_definition": "Vendor count grouped by vendor_types lookup.",
+    "null_handling": "Use Unclassified when vendor type is missing.",
+    "reference_sql": "SELECT COALESCE(t.vendor_type, 'Unclassified') AS vendor_category, COUNT(m.vendor_id) AS vendor_count FROM vendor_mst m LEFT JOIN vendor_types t ON t.vendor_types_id = m.vendor_types_id GROUP BY COALESCE(t.vendor_type, 'Unclassified') ORDER BY vendor_count DESC LIMIT 20",
+    "source_columns": [
+      "vendor_mst.vendor_id",
+      "vendor_mst.vendor_types_id",
+      "vendor_types.vendor_type"
+    ],
+    "source_of_evidence": "live ERP verification and vendor module benchmark",
+    "status_field": null,
+    "status_value_meanings_verified": false,
+    "valid_status_values": [],
+    "verification_status": "verified"
+  }
+]

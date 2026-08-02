@@ -4,6 +4,43 @@ A proof-of-concept app for asking business questions about SQL data in natural l
 
 You can upload SQLite databases, import SQL dumps, or connect to an existing configured MySQL database. The backend inspects the schema, narrows the relevant tables, asks the configured LLM only when needed, validates generated SQL, runs read-only queries, and returns a manager-friendly answer with tables, bullets, limitations, and confidence.
 
+The management demonstration uses a deliberately limited, verified ERP module
+set. See [POC_SCOPE.md](POC_SCOPE.md) for supported, limited and out-of-scope
+questions.
+
+## Current POC Focus
+
+This POC is optimized for one stable ERP product schema, not for arbitrary
+unknown databases. The useful generic discovery work is now used as support,
+while the main runtime path prefers verified ERP knowledge:
+
+- verified business modules, metrics, aliases, and entity types
+- approved table and column mappings
+- approved relationship paths and duplicate-risk rules
+- deterministic SQL compilation for supported management questions
+- plan-aware SQL validation before read-only execution
+- short manager-friendly answers with tables, confidence, and limitations
+
+A printable 3-page overview is available at
+[docs/ERP_AI_Assistant_POC_Overview.html](docs/ERP_AI_Assistant_POC_Overview.html).
+It explains the POC architecture, how questions work, and what the assistant can
+answer.
+
+## Verified Demo Coverage
+
+The strongest POC modules are:
+
+- Projects: running projects, project details, project value, project comparisons
+- Billing: total billing, billing by project, project billing comparisons
+- Purchase Orders: total PO value, top POs, PO by project/vendor, PO comparisons
+- Vendors: vendor lists, vendor details, top vendors by PO value, comparisons
+- Store / Material Movement: material issued, top materials, recent movement
+- Inventory: basic inventory and material availability style questions
+
+Unsupported or ambiguous business KPIs such as profit, margin, loss,
+performance, and risk score should ask for clarification or a verified formula
+instead of guessing.
+
 ## Stack
 
 - Frontend: React, TypeScript, Vite, Tailwind CSS

@@ -32,6 +32,10 @@ LLM_MODEL = os.getenv(
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+LLM_POLISH_VERIFIED_ANSWERS = os.getenv(
+    "LLM_POLISH_VERIFIED_ANSWERS",
+    "0",
+).strip().lower() in {"1", "true", "yes"}
 
 LLM_FALLBACK_MODELS = [
     model.strip()
@@ -135,6 +139,8 @@ MYSQL_USERNAME = os.getenv("MYSQL_USERNAME", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", os.getenv("MYSQL_ROOT_PASSWORD", "ChangeThisMysqlPassword123!"))
 MYSQL_DATABASE_PREFIX = os.getenv("MYSQL_DATABASE_PREFIX", "sql_assistant")
 MYSQL_QUERY_TIMEOUT_SECONDS = int(os.getenv("MYSQL_QUERY_TIMEOUT_SECONDS", "30"))
+MYSQL_LLM_SCHEMA_MODE = os.getenv("MYSQL_LLM_SCHEMA_MODE", "focused").strip().lower()
+MYSQL_LLM_FULL_SCHEMA_MAX_COLUMNS = int(os.getenv("MYSQL_LLM_FULL_SCHEMA_MAX_COLUMNS", "0"))
 MYSQL_ALLOWED_DATABASES = [
     database.strip()
     for database in os.getenv("MYSQL_ALLOWED_DATABASES", "").split(",")
