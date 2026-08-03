@@ -161,10 +161,11 @@ def test_verified_cross_module_answer_is_short_and_human():
         plan,
     )
 
-    assert answer.startswith("RDSS-VIZAG has the higher")
+    assert answer.startswith("Short summary")
+    assert "RDSS-VIZAG has the higher Purchase Value" in answer
     assert "| Project Name | Gross Bill Value | Purchase Value | Issued Value |" in answer
-    assert "For RDSS-VIZAG, the recorded PO value is INR 63,000,000.00 higher" in answer
-    assert "For RDSS-UGCABLE, the recorded billing value is INR 16,000,000.00 higher" in answer
+    assert "For RDSS-VIZAG, the recorded PO value is ₹6.30 Cr higher" in answer
+    assert "For RDSS-UGCABLE, the recorded billing value is ₹1.60 Cr higher" in answer
     assert "Limitations" not in answer
     assert "Keep in mind" not in answer
 

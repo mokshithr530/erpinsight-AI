@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import Callable
 
 
-SEMANTIC_PARSER_VERSION = "semantic-parser:v15"
+SEMANTIC_PARSER_VERSION = "semantic-parser:v16"
 
 
 @dataclass
@@ -135,7 +135,8 @@ class SemanticParser:
             "purchase value", "purchase amount", "order value", "order amount",
             "ordered value", "po value", "po total", "purchase order value",
             "purchase order total", "procurement value", "procurement spend",
-            "purchase spend", "vendor spend", "supplier spend",
+            "purchase spend", "po spend", "po amount", "po total amount",
+            "vendor spend", "supplier spend",
             "vendor purchase value", "supplier purchase value",
             "buying value", "buying cost", "purchases",
         ),
@@ -226,7 +227,7 @@ class SemanticParser:
         "manager": ("manager", "managers", "project manager", "project managers"),
         "sales_representative": ("sales representative", "sales representatives", "sales rep", "sales reps"),
         "material": ("material", "materials", "product", "products", "item", "items", "raw material"),
-        "purchase_order": ("purchase order", "purchase orders", "order", "orders", "po", "purchase request", "purchase requests"),
+        "purchase_order": ("purchase order", "purchase orders", "order", "orders", "po", "pos", "p o", "p.o.", "p.o", "purchase request", "purchase requests"),
         "purchase_order_item": ("purchase order item", "purchase order items", "po item", "po items", "order item", "order items"),
         "invoice": ("invoice", "invoices", "bill", "bills"),
         "payment": ("payment", "payments"),
@@ -331,6 +332,26 @@ class SemanticParser:
         dimensions = [canonical for canonical, _raw in dimension_matches]
         if re.search(r"\bmanager\s+should\s+notice\b|\bfor\s+(?:a\s+)?manager\b|\bmanagement\s+review\b", normalized):
             dimensions = [dimension for dimension in dimensions if dimension != "manager"]
+        if "purchase_order" in dimensions and "amount_value" in metrics:
+            metrics = [
+                "purchase_value" if metric == "amount_value" else metric
+                for metric in metrics
+            ]
+        metrics = list(dict.fromkeys(metrics))
+        if {"billing", "purchase_value"} <= set(metrics) and "project" not in dimensions:
+            dimensions.append("project")
+        if {"billing", "purchase_value"} <= set(metrics) and "project" in dimensions:
+            dimensions = [
+                dimension
+                for dimension in dimensions
+                if dimension != "purchase_order"
+            ]
+        if "stock" in metrics and "material" in dimensions:
+            dimensions = [
+                dimension
+                for dimension in dimensions
+                if dimension != "inventory"
+            ]
 
         limit, offset, sort_direction = self._limit_order(normalized)
         dates = self._date_constraints(original)
@@ -408,6 +429,14 @@ class SemanticParser:
             sort_direction = sort_direction or "desc"
             limit = limit or 10
             ordering = [OrderingSpec(target_concept="material_issues", direction=sort_direction)]
+        if (
+            mentions
+            and "purchase_value" in metrics
+            and re.search(r"\b(?:compare|versus|vs\.?)\b", normalized)
+            and "project" not in dimensions
+            and "vendor" not in dimensions
+        ):
+            dimensions.append("project")
         operation, sub_operations = self._operations(
             normalized,
             metrics=metrics,
@@ -627,6 +656,12 @@ class SemanticParser:
         )
         if not match:
             match = re.search(
+                rf"\b(?:biggest|largest|highest|smallest|lowest)\s+({number_word})\b"
+                r"(?!\s+(?:days?|weeks?|months?|quarters?|years?))",
+                normalized,
+            )
+        if not match:
+            match = re.search(
                 rf"\b(?:show|list|name|give(?:\s+me)?|tell(?:\s+me)?)\s+"
                 rf"(?:any\s+|latest\s+|recent\s+|newest\s+)?({number_word})\b"
                 r"(?!\s+(?:days?|weeks?|months?|quarters?|years?))",
@@ -648,6 +683,8 @@ class SemanticParser:
             limit = self._number(match.group(1))
         elif re.search(r"\b(highest|lowest|maximum|minimum|most|least|largest|smallest|best|worst)\b", normalized):
             limit = 1
+        elif re.search(r"\btop\b", normalized):
+            limit = 10
         offset_match = re.search(r"\b(?:skip|offset)\s+(\d{1,6})\b", normalized)
         if offset_match:
             offset = int(offset_match.group(1))
@@ -716,7 +753,7 @@ class SemanticParser:
             })
             consumed.append(month_range.span())
 
-        for match in re.finditer(r"\b(?:last|past)\s+(\d{1,4})\s+days?\b", text):
+        for match in re.finditer(r"\b(?:last|past|recent|latest)\s+(\d{1,4})\s+(?:day|days)(?:\s+window|\s+period|\s+range)?\b", text):
             days = int(match.group(1))
             constraints.append({"type": "last_days", "value": days, "days": days})
             consumed.append(match.span())
@@ -858,7 +895,7 @@ class SemanticParser:
             operations.append("metadata")
         if re.search(r"\bwhich tables?\b|\bwhich columns?\b|\bwhere is .+ stored\b|\bmain relationships?\b|\bschema\b", normalized):
             operations.append("schema_question")
-        if re.search(r"\bcompare\b|\bversus\b|\bvs\.?\b|\bplanned (?:and|versus|vs) actual\b", normalized):
+        if re.search(r"\bcompare\b|\bversus\b|\bvs\.?\b|\bbetween\b.+\band\b|\bplanned (?:and|versus|vs) actual\b", normalized):
             operations.append("comparison")
         explicit_ranking = re.search(r"\b(?:top|bottom|highest|lowest|maximum|minimum|most|least|largest|smallest|best|worst)\b", normalized)
         default_distribution_order = bool(
@@ -955,6 +992,10 @@ class SemanticParser:
 
     def _candidate_mentions(self, original: str) -> list[str]:
         candidates = []
+        leading_between = re.search(r"^\s*between\s+(.+?)\s+(?:and|versus|vs\.?)\s+(.+?)(?=,|\s+which|\s+who|\s+what|\s+where|\s+when|\s+how|[?.!]|$)", original, re.I)
+        if leading_between:
+            self._append_candidate(candidates, leading_between.group(1), strong=False)
+            self._append_candidate(candidates, leading_between.group(2), strong=False)
         between_entities = re.search(r"\bcompare\b.+?\bbetween\s+(.+)$", original, re.I)
         if between_entities:
             for part in re.split(r"\s+(?:and|versus|vs\.?)\s+|,", between_entities.group(1), flags=re.I):
@@ -1000,6 +1041,7 @@ class SemanticParser:
     def _clean_mention(self, value: str) -> str:
         value = re.sub(r"^[\s,;:.!?]+|[\s,;:.!?]+$", "", str(value or ""))
         value = value.strip("'\"")
+        value = re.sub(r"^(?:between|versus|vs\.?)\s+", "", value, flags=re.I)
         value = re.sub(r"^(?:show|list|give|tell|find|compare)\s+(?:me\s+)?", "", value, flags=re.I)
         value = re.split(
             r"\s+(?:including|with|where|whose|that|which|and\s+anything|so\s+i|not\s+technical)\b",
@@ -1219,7 +1261,7 @@ class SemanticParser:
 
     def _looks_like_date_phrase(self, value: str):
         return bool(re.search(
-            r"\b(?:the\s+)?(?:last|past|this|current|previous|next)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\s*(?:days?|weeks?|months?|quarters?|years?|financial year)\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:19|20)\d{2}\b",
+            r"\b(?:the\s+)?(?:last|past|recent|latest|this|current|previous|next)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\s*(?:day|days|weeks?|months?|quarters?|years?|financial year)(?:\s+(?:window|period|range))?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(?:19|20)\d{2}\b",
             value,
         ))
 

@@ -17,6 +17,11 @@ from entity_resolver import entity_resolver
 from relationship_discovery import relationship_discovery
 from schema_retriever import schema_retriever
 from semantic_parser import semantic_parser
+from erp_semantic_binder import erp_semantic_binder
+from erp_sql_context import erp_sql_context_builder
+from query_plan import QueryPlan, query_plan_guard
+from clarification_planner import ordered_clarification_planner
+from verified_sql_compiler import verified_sql_compiler
 
 
 mcp = FastMCP("SQL Assistant")
@@ -25,6 +30,109 @@ _WORDS = re.compile(r"[A-Za-z0-9]+")
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PROFILE_LIMIT = 8
 _SAMPLE_LIMIT = 10
+
+
+def _tool_response(
+    *,
+    status: str,
+    result: dict | list | None = None,
+    confidence: float = 1.0,
+    reasons: list[str] | None = None,
+    warnings: list[str] | None = None,
+    next_tools: list[str] | None = None,
+    **compat,
+) -> dict:
+    payload = {
+        "status": status,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "result": result or {},
+        "reasoning": {
+            "reasons": reasons or [],
+        },
+        "warnings": warnings or [],
+        "next_recommended_tools": next_tools or [],
+        "execution_metadata": {
+            "tool_contract": "verified-erp-mcp:v2",
+            "llm_free": True,
+            "read_only": True,
+        },
+    }
+    payload.update(compat)
+    return payload
+
+
+def _blocked_response(errors, *, warnings=None, next_tools=None, **compat):
+    normalized_errors = [
+        str(error)
+        for error in (errors if isinstance(errors, list) else [errors])
+        if str(error)
+    ]
+    return _tool_response(
+        status="blocked",
+        confidence=0.0,
+        result={"errors": normalized_errors},
+        reasons=normalized_errors,
+        warnings=warnings or [],
+        next_tools=next_tools or ["resolve_business_terms", "inspect_verified_modules"],
+        **compat,
+    )
+
+
+def _catalog_items(catalog: dict, section: str) -> list[dict]:
+    return [
+        item
+        for item in catalog.get(section) or []
+        if isinstance(item, dict)
+    ]
+
+
+def _matches_text(item: dict, *terms: str) -> bool:
+    haystack = " ".join(
+        str(value).lower()
+        for value in item.values()
+        if not isinstance(value, (dict, list))
+    )
+    haystack = " ".join([
+        haystack,
+        " ".join(str(value).lower() for value in item.get("aliases", []) or []),
+        " ".join(str(value).lower() for value in item.get("business_terms", []) or []),
+    ])
+    return all(str(term or "").lower() in haystack for term in terms if term)
+
+
+def _query_plan_from_payload(query_plan: dict) -> QueryPlan:
+    allowed = set(QueryPlan.__dataclass_fields__)
+    return QueryPlan(**{
+        key: value
+        for key, value in dict(query_plan or {}).items()
+        if key in allowed
+    })
+
+
+def _estimate_sql_cost(sql: str) -> dict:
+    cleaned = str(sql or "")
+    tables = re.findall(r"\b(?:FROM|JOIN)\s+`?([A-Za-z_][\w]*)`?", cleaned, re.IGNORECASE)
+    joins = len(re.findall(r"\bJOIN\b", cleaned, re.IGNORECASE))
+    aggregations = len(re.findall(r"\b(?:SUM|COUNT|AVG|MIN|MAX)\s*\(", cleaned, re.IGNORECASE))
+    has_limit = bool(re.search(r"\bLIMIT\b", cleaned, re.IGNORECASE))
+    score = min(100, 15 + len(set(tables)) * 10 + joins * 15 + aggregations * 8 + (0 if has_limit else 20))
+    level = "low" if score < 35 else "medium" if score < 70 else "high"
+    return {
+        "estimated_cost_score": score,
+        "estimated_cost_level": level,
+        "table_count": len(set(tables)),
+        "join_count": joins,
+        "aggregation_count": aggregations,
+        "has_limit": has_limit,
+    }
+
+
+def _compat_payload(payload: dict) -> dict:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in {"status", "confidence", "result", "reasoning", "warnings", "next_recommended_tools", "execution_metadata"}
+    }
 
 
 def _database_path(
@@ -62,6 +170,143 @@ def _source(database_path=None, session_id=None, source_type=None):
     if session_source and session_source.get("source_type") == "mysql":
         return session_source
     return {"source_type": "sqlite", "path": _database_path(database_path, session_id)}
+
+
+def _mysql_database(database: str | None = None, session_id: str | None = None) -> str:
+    if database:
+        return database
+    session_source = get_session_source(session_id) if session_id else None
+    if session_source and session_source.get("source_type") == "mysql":
+        return session_source["database"]
+    raise ValueError(
+        "Verified ERP MCP tools require a MySQL database name or a session_id "
+        "attached to a MySQL ERP database."
+    )
+
+
+def _verified_erp_plan(question: str, database: str) -> dict:
+    semantic_plan = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    catalog = mysql_adapter.business_catalog(database)
+    semantic_binding = erp_semantic_binder.bind(
+        question=question,
+        semantic_plan=semantic_plan,
+        catalog=catalog,
+    ).to_dict()
+    entity_resolution = mysql_adapter.resolve_verified_entities(
+        question,
+        database,
+        semantic_plan=semantic_plan,
+        semantic_binding=semantic_binding,
+    )
+    semantic_binding = erp_semantic_binder.bind(
+        question=question,
+        semantic_plan=semantic_plan,
+        catalog=catalog,
+        entity_resolution=entity_resolution,
+    ).to_dict()
+    clarification = ordered_clarification_planner.plan(
+        question=question,
+        semantic_plan=semantic_plan,
+        entity_resolution=entity_resolution,
+        semantic_binding=semantic_binding,
+    )
+    if clarification.required:
+        return {
+            "status": "clarification_required",
+            "question": question,
+            "database": database,
+            "semantic_plan": semantic_plan,
+            "entity_resolution": entity_resolution,
+            "semantic_binding": semantic_binding,
+            "clarification": clarification.to_context(question),
+            "clarification_question": clarification.question,
+            "options": clarification.options,
+            "sql": None,
+            "validation": {
+                "valid": False,
+                "errors": ["Clarification required before SQL generation."],
+                "warnings": [],
+            },
+        }
+
+    resolved_tables = [
+        match["table"]
+        for match in entity_resolution.get("matches", [])
+        if match.get("confidence", 0) >= 70
+    ]
+    relevant_tables = list(dict.fromkeys([
+        *(semantic_binding.get("required_tables") or []),
+        *resolved_tables,
+    ]))
+    retrieval = {
+        "selected_tables": relevant_tables,
+        "relevant_columns": semantic_binding.get("required_columns") or {},
+        "relationship_paths": semantic_binding.get("approved_relationships") or [],
+        "retrieval_confidence": (semantic_binding.get("confidence_score", 0) / 100),
+        "reasons": semantic_binding.get("reasons") or [],
+        "warnings": semantic_binding.get("warnings") or [],
+        "unresolved_concepts": [
+            item.get("concept")
+            for item in semantic_binding.get("unresolved_concepts") or []
+            if isinstance(item, dict) and item.get("concept")
+        ],
+    }
+    query_plan = query_plan_guard.build(
+        question=question,
+        semantic_plan=semantic_plan,
+        entity_resolution=entity_resolution,
+        retrieval=retrieval,
+        semantic_binding=semantic_binding,
+    )
+    plan_validation = query_plan_guard.validate_plan(query_plan)
+    schema = mysql_adapter.inspect_schema(database)
+    canonical_context = None
+    if semantic_binding.get("authoritative"):
+        canonical_context = erp_sql_context_builder.build(
+            schema=schema,
+            query_plan=query_plan,
+            semantic_binding=semantic_binding,
+            catalog=catalog,
+            schema_fingerprint=mysql_adapter.schema_fingerprint(database),
+        )
+        existing_generation_columns = dict(query_plan.generation_columns)
+        query_plan.generation_tables = list(canonical_context.selected_tables)
+        query_plan.generation_columns = query_plan_guard._merge_columns(
+            existing_generation_columns,
+            dict(canonical_context.selected_columns),
+        )
+    sql = verified_sql_compiler.compile(query_plan)
+    validation = (
+        mysql_adapter.validate_sql(sql, database)
+        if sql
+        else {"valid": False, "errors": ["No verified ERP SQL could be generated."], "warnings": []}
+    )
+    if sql and validation.get("valid"):
+        plan_sql_validation = query_plan_guard.validate_sql(sql, query_plan, schema=schema)
+        validation = {
+            "valid": bool(plan_sql_validation["valid"]),
+            "errors": [
+                *validation.get("errors", []),
+                *plan_sql_validation.get("errors", []),
+            ],
+            "warnings": [
+                *validation.get("warnings", []),
+                *plan_sql_validation.get("warnings", []),
+            ],
+        }
+    return {
+        "status": "ready" if plan_validation["valid"] and validation["valid"] else "blocked",
+        "question": question,
+        "database": database,
+        "semantic_plan": semantic_plan,
+        "entity_resolution": entity_resolution,
+        "semantic_binding": semantic_binding,
+        "query_plan": query_plan.to_dict(),
+        "plan_validation": plan_validation,
+        "canonical_context": canonical_context.to_dict() if canonical_context else None,
+        "sql": sql,
+        "validation": validation,
+    }
 
 
 def _connect_read_only(path: Path):
@@ -661,6 +906,695 @@ def discover_join_paths(
         "join_paths": catalog["join_paths"],
         "paths": paths,
     }
+
+
+@mcp.tool()
+def inspect_verified_modules(
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Use first. Lists verified ERP modules. Do not call for raw SQL execution."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    modules = {}
+    for section in ["business_concepts", "metrics", "dimensions", "join_paths", "business_definitions"]:
+        for item in _catalog_items(catalog, section):
+            module = item.get("applicable_module") or item.get("module")
+            if module:
+                modules.setdefault(str(module), {
+                    "module": str(module),
+                    "concept_count": 0,
+                    "metric_count": 0,
+                    "dimension_count": 0,
+                    "relationship_count": 0,
+                })
+                if section == "business_concepts":
+                    modules[str(module)]["concept_count"] += 1
+                elif section == "metrics":
+                    modules[str(module)]["metric_count"] += 1
+                elif section == "dimensions":
+                    modules[str(module)]["dimension_count"] += 1
+                elif section == "join_paths":
+                    modules[str(module)]["relationship_count"] += 1
+    result = {
+        "database": resolved_database,
+        "schema_fingerprint": catalog.get("schema_fingerprint"),
+        "modules": sorted(modules.values(), key=lambda item: item["module"]),
+        "unsupported_kpis": catalog.get("unsupported_kpis", []),
+    }
+    return _tool_response(
+        status="success",
+        confidence=0.99 if modules else 0.35,
+        result=result,
+        reasons=["loaded verified ERP catalog modules"],
+        next_tools=["detect_required_modules", "inspect_verified_metrics", "inspect_verified_entities"],
+        **result,
+    )
+
+
+@mcp.tool()
+def detect_required_modules(
+    question: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Classify which verified ERP modules are relevant. Call before metric or join lookup."""
+    resolved_database = _mysql_database(database, session_id)
+    semantic_plan = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    binding = erp_semantic_binder.bind(
+        question=question,
+        semantic_plan=semantic_plan,
+        catalog=catalog,
+    ).to_dict()
+    modules = list(dict.fromkeys(
+        str(item.get("applicable_module") or item.get("module"))
+        for section in ["bound_metrics", "bound_dimensions", "approved_relationships"]
+        for item in binding.get(section) or []
+        if isinstance(item, dict) and (item.get("applicable_module") or item.get("module"))
+    ))
+    if not modules:
+        modules = [
+            module
+            for module in ["billing", "purchase_orders", "project_master", "vendors", "store_material", "inventory"]
+            if module.replace("_", " ") in question.lower()
+        ]
+    result = {
+        "question": question,
+        "modules": modules,
+        "semantic_plan": semantic_plan,
+        "binding_confidence": binding.get("confidence_score", 0) / 100,
+        "unresolved_concepts": binding.get("unresolved_concepts", []),
+    }
+    return _tool_response(
+        status="success" if modules else "needs_more_evidence",
+        confidence=result["binding_confidence"] if modules else 0.25,
+        result=result,
+        reasons=binding.get("reasons") or ["detected modules from verified catalog binding"],
+        warnings=binding.get("warnings") or [],
+        next_tools=["resolve_entities", "resolve_dates", "resolve_business_terms"],
+        **result,
+    )
+
+
+@mcp.tool()
+def inspect_verified_metrics(
+    module: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """List verified metrics for one module. Do not use to invent unsupported formulas."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    module_lower = str(module or "").lower()
+    metrics = [
+        item
+        for item in _catalog_items(catalog, "metrics")
+        if module_lower in str(item.get("applicable_module") or item.get("module") or "").lower()
+    ]
+    definitions = [
+        item
+        for item in _catalog_items(catalog, "business_definitions")
+        if module_lower in str(item.get("applicable_module") or item.get("module") or "").lower()
+    ]
+    result = {
+        "database": resolved_database,
+        "module": module,
+        "metrics": metrics,
+        "business_definitions": definitions,
+    }
+    return _tool_response(
+        status="success" if metrics or definitions else "not_found",
+        confidence=0.98 if metrics or definitions else 0.2,
+        result=result,
+        reasons=["returned verified module metrics only"],
+        next_tools=["get_verified_metric", "get_verified_dimension", "get_verified_join_path"],
+        **result,
+    )
+
+
+@mcp.tool()
+def inspect_verified_entities(
+    entity_type: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """List verified entity types and their tables. Use before resolving entity names."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    target = str(entity_type or "").lower()
+    entities = {}
+    for key, value in (catalog.get("entities") or {}).items():
+        if target and target not in str(key).lower():
+            continue
+        entities[key] = value
+    result = {
+        "database": resolved_database,
+        "entities": entities,
+        "aliases": catalog.get("aliases", {}),
+    }
+    return _tool_response(
+        status="success" if entities else "not_found",
+        confidence=0.97 if entities else 0.25,
+        result=result,
+        reasons=["returned verified entity types from catalog"],
+        next_tools=["resolve_entities"],
+        **result,
+    )
+
+
+@mcp.tool()
+def resolve_dates(question: str) -> dict:
+    """Extract date constraints only. Does not inspect schema or execute SQL."""
+    semantic_plan = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    dates = semantic_plan.get("date_constraints") or []
+    result = {
+        "question": question,
+        "date_constraints": dates,
+    }
+    return _tool_response(
+        status="success" if dates else "not_found",
+        confidence=0.95 if dates else 0.6,
+        result=result,
+        reasons=["parsed dates deterministically from user question"],
+        next_tools=["resolve_business_terms", "plan_verified_query"],
+        **result,
+    )
+
+
+@mcp.tool()
+def resolve_business_terms(
+    question: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Bind user wording to verified ERP concepts, metrics and dimensions. Does not generate SQL."""
+    resolved_database = _mysql_database(database, session_id)
+    semantic_plan = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    binding = erp_semantic_binder.bind(
+        question=question,
+        semantic_plan=semantic_plan,
+        catalog=catalog,
+    ).to_dict()
+    result = {
+        "question": question,
+        "semantic_plan": semantic_plan,
+        "semantic_binding": binding,
+    }
+    return _tool_response(
+        status="clarification_required" if binding.get("clarification_required") else "success",
+        confidence=binding.get("confidence_score", 0) / 100,
+        result=result,
+        reasons=binding.get("reasons") or [],
+        warnings=binding.get("warnings") or [],
+        next_tools=["resolve_entities", "get_verified_metric", "plan_verified_query"],
+        **result,
+    )
+
+
+@mcp.tool()
+def inspect_verified_erp_catalog(
+    module: str | None = None,
+    concept: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Return verified ERP catalog facts for a MySQL ERP database without using an LLM."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    module_lower = str(module or "").lower()
+    concept_lower = str(concept or "").lower()
+
+    def keep(item):
+        text = " ".join(str(value).lower() for value in item.values() if not isinstance(value, (list, dict)))
+        if module_lower and module_lower not in text:
+            return False
+        if concept_lower and concept_lower not in text:
+            aliases = " ".join(
+                str(alias).lower()
+                for alias in item.get("aliases", [])
+            )
+            return concept_lower in aliases
+        return True
+
+    sections = {}
+    for section in [
+        "business_concepts",
+        "metrics",
+        "dimensions",
+        "date_fields",
+        "status_fields",
+        "business_definitions",
+        "unresolved_definitions",
+    ]:
+        values = catalog.get(section) or []
+        if isinstance(values, list):
+            sections[section] = [
+                item for item in values
+                if isinstance(item, dict) and keep(item)
+            ][:25]
+    result = {
+        "source_type": "mysql",
+        "database": resolved_database,
+        "catalog_version": catalog.get("catalog_version"),
+        "schema_fingerprint": catalog.get("schema_fingerprint"),
+        "authoritative": bool(catalog.get("verified_catalog")),
+        "sections": sections,
+        "important_tables": catalog.get("important_tables", [])[:20],
+        "unsupported_kpis": catalog.get("unsupported_kpis", []),
+    }
+    return _tool_response(
+        status="success",
+        confidence=0.99 if result["authoritative"] else 0.55,
+        result=result,
+        reasons=["returned verified ERP catalog facts only"],
+        next_tools=["detect_required_modules", "inspect_verified_metrics", "resolve_business_terms"],
+        **result,
+    )
+
+
+@mcp.tool()
+def get_verified_metric(
+    metric: str,
+    module: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Find verified ERP metric definitions, source columns, formulas, and grains."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    target = str(metric or "").lower()
+    module_lower = str(module or "").lower()
+    matches = []
+    for item in [
+        *(catalog.get("metrics") or []),
+        *(catalog.get("business_definitions") or []),
+    ]:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(
+            str(value).lower()
+            for value in item.values()
+            if not isinstance(value, (list, dict))
+        )
+        aliases = " ".join(str(alias).lower() for alias in item.get("aliases", []))
+        if target and target not in text and target not in aliases:
+            continue
+        if module_lower and module_lower not in text:
+            continue
+        matches.append(item)
+    result = {
+        "source_type": "mysql",
+        "database": resolved_database,
+        "metric": metric,
+        "matches": matches[:12],
+        "unresolved": not bool(matches),
+        "message": (
+            "No verified metric found. Ask for clarification or add this KPI to the ERP catalog."
+            if not matches else None
+        ),
+    }
+    return _tool_response(
+        status="success" if matches else "not_found",
+        confidence=0.98 if matches else 0.2,
+        result=result,
+        reasons=["searched verified ERP metrics and business definitions"],
+        warnings=[] if matches else ["No verified metric matched the requested wording."],
+        next_tools=["get_verified_dimension", "get_verified_join_path", "plan_verified_query"],
+        **result,
+    )
+
+
+@mcp.tool()
+def get_verified_dimension(
+    name: str,
+    module: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Find verified ERP dimensions such as project, vendor, material, client or store."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    target = str(name or "").lower()
+    module_lower = str(module or "").lower()
+    matches = []
+    for item in _catalog_items(catalog, "dimensions"):
+        if target and not _matches_text(item, target):
+            continue
+        if module_lower and module_lower not in str(item.get("applicable_module") or item.get("module") or "").lower():
+            continue
+        matches.append(item)
+    result = {
+        "database": resolved_database,
+        "dimension": name,
+        "matches": matches[:12],
+        "unresolved": not bool(matches),
+    }
+    return _tool_response(
+        status="success" if matches else "not_found",
+        confidence=0.97 if matches else 0.2,
+        result=result,
+        reasons=["searched verified ERP dimensions"],
+        next_tools=["resolve_entities", "get_verified_join_path", "plan_verified_query"],
+        **result,
+    )
+
+
+@mcp.tool()
+def get_verified_join_path(
+    from_concept: str,
+    to_concept: str,
+    module: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Return approved ERP join paths and duplicate-risk notes for two concepts."""
+    resolved_database = _mysql_database(database, session_id)
+    catalog = mysql_adapter.business_catalog(resolved_database)
+    left = str(from_concept or "").lower()
+    right = str(to_concept or "").lower()
+    module_lower = str(module or "").lower()
+    matches = []
+    for item in catalog.get("join_paths") or []:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(value).lower() for value in item.values() if not isinstance(value, (list, dict)))
+        if left in text and right in text and (not module_lower or module_lower in text):
+            matches.append(item)
+    if not matches:
+        for item in catalog.get("relationship_evidence") or []:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(str(value).lower() for value in item.values() if not isinstance(value, (list, dict)))
+            if left in text and right in text and (not module_lower or module_lower in text):
+                matches.append(item)
+    result = {
+        "source_type": "mysql",
+        "database": resolved_database,
+        "from_concept": from_concept,
+        "to_concept": to_concept,
+        "approved_paths": matches[:10],
+        "unresolved": not bool(matches),
+        "message": (
+            "No approved ERP relationship found. Do not guess this join; ask clarification or mark unsupported."
+            if not matches else None
+        ),
+    }
+    return _tool_response(
+        status="success" if matches else "clarification_required",
+        confidence=0.95 if matches else 0.15,
+        result=result,
+        reasons=["searched approved ERP relationship graph"],
+        warnings=[] if matches else ["No approved ERP relationship path was found."],
+        next_tools=["plan_verified_query"] if matches else ["resolve_business_terms", "inspect_verified_modules"],
+        **result,
+    )
+
+
+@mcp.tool()
+def check_relationship(
+    entity_a: str,
+    entity_b: str,
+    module: str | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Check whether two ERP concepts have an approved relationship. Never infer a risky join."""
+    result = get_verified_join_path(
+        entity_a,
+        entity_b,
+        module=module,
+        session_id=session_id,
+        database=database,
+    )
+    approved = result.get("approved_paths") or []
+    payload = {
+        "entity_a": entity_a,
+        "entity_b": entity_b,
+        "approved": bool(approved),
+        "approved_paths": approved,
+    }
+    return _tool_response(
+        status="success" if approved else "clarification_required",
+        confidence=0.95 if approved else 0.15,
+        result=payload,
+        reasons=["checked verified relationship graph"],
+        warnings=[] if approved else ["No approved relationship path was found."],
+        next_tools=["plan_verified_query"] if approved else ["inspect_verified_modules", "resolve_business_terms"],
+        **payload,
+    )
+
+
+@mcp.tool()
+def plan_verified_erp_query(
+    question: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Build a verified ERP query plan and SQL candidate without executing it."""
+    resolved_database = _mysql_database(database, session_id)
+    plan = _verified_erp_plan(question, resolved_database)
+    next_tools = []
+    if plan.get("status") == "ready":
+        next_tools = ["compile_verified_sql", "validate_sql", "execute_verified_sql"]
+    elif plan.get("status") == "clarification_required":
+        next_tools = ["resolve_entities", "resolve_business_terms"]
+    else:
+        next_tools = ["inspect_verified_modules", "resolve_business_terms"]
+    return _tool_response(
+        status=plan.get("status", "blocked"),
+        confidence=0.9 if plan.get("status") == "ready" else 0.25,
+        result=plan,
+        reasons=["built verified ERP query plan without executing SQL"],
+        warnings=[
+            *plan.get("plan_validation", {}).get("warnings", []),
+            *plan.get("validation", {}).get("warnings", []),
+        ],
+        next_tools=next_tools,
+        **_compat_payload(plan),
+    )
+
+
+@mcp.tool()
+def compile_verified_sql(
+    query_plan: dict,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Compile SQL from a verified query plan only. Does not execute SQL."""
+    resolved_database = _mysql_database(database, session_id)
+    plan = _query_plan_from_payload(query_plan)
+    sql = verified_sql_compiler.compile(plan)
+    if not sql:
+        return _blocked_response(
+            "No verified SQL pattern matched this query plan.",
+            next_tools=["resolve_business_terms", "plan_verified_query"],
+            database=resolved_database,
+            sql=None,
+        )
+    validation = mysql_adapter.validate_sql(sql, resolved_database)
+    result = {
+        "database": resolved_database,
+        "sql": sql,
+        "validation": validation,
+    }
+    return _tool_response(
+        status="success" if validation.get("valid") else "blocked",
+        confidence=0.98 if validation.get("valid") else 0.2,
+        result=result,
+        reasons=["compiled SQL with verified SQL compiler"],
+        warnings=validation.get("warnings", []),
+        next_tools=["validate_sql", "estimate_query_cost"],
+        **result,
+    )
+
+
+@mcp.tool()
+def estimate_query_cost(
+    sql: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Estimate query risk before execution. Does not execute SQL or inspect data values."""
+    resolved_database = _mysql_database(database, session_id)
+    validation = mysql_adapter.validate_sql(sql, resolved_database)
+    cost = _estimate_sql_cost(sql)
+    result = {
+        "database": resolved_database,
+        "validation": validation,
+        "cost": cost,
+    }
+    status = "success" if validation.get("valid") else "blocked"
+    return _tool_response(
+        status=status,
+        confidence=0.9 if validation.get("valid") else 0.1,
+        result=result,
+        reasons=["estimated query cost from SQL shape and validation result"],
+        warnings=validation.get("warnings", []),
+        next_tools=["execute_verified_sql"] if validation.get("valid") else ["compile_verified_sql"],
+        **result,
+    )
+
+
+@mcp.tool()
+def execute_verified_sql(
+    sql: str,
+    query_plan: dict | None = None,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Execute only validated read-only SQL. Prefer SQL from compile_verified_sql."""
+    resolved_database = _mysql_database(database, session_id)
+    validation = mysql_adapter.validate_sql(sql, resolved_database)
+    if validation.get("valid") and query_plan:
+        schema = mysql_adapter.inspect_schema(resolved_database)
+        plan_validation = query_plan_guard.validate_sql(
+            sql,
+            _query_plan_from_payload(query_plan),
+            schema=schema,
+        )
+        validation = {
+            "valid": bool(plan_validation["valid"]),
+            "errors": [
+                *validation.get("errors", []),
+                *plan_validation.get("errors", []),
+            ],
+            "warnings": [
+                *validation.get("warnings", []),
+                *plan_validation.get("warnings", []),
+            ],
+        }
+    if not validation.get("valid"):
+        return _blocked_response(
+            validation.get("errors") or ["SQL validation failed."],
+            warnings=validation.get("warnings", []),
+            next_tools=["compile_verified_sql", "validate_sql"],
+            database=resolved_database,
+            sql=sql,
+            validation=validation,
+        )
+    dataframe = mysql_adapter.execute_read_query(sql, resolved_database)
+    result = {
+        "database": resolved_database,
+        "sql": sql.strip().rstrip(";"),
+        "columns": list(dataframe.columns),
+        "rows": dataframe.to_dict(orient="records"),
+        "row_count": len(dataframe),
+        "validation": validation,
+    }
+    return _tool_response(
+        status="success",
+        confidence=0.98,
+        result=result,
+        reasons=["validated SQL before read-only execution"],
+        warnings=validation.get("warnings", []),
+        next_tools=["format_result"],
+        **result,
+    )
+
+
+@mcp.tool()
+def format_result(
+    rows: list[dict],
+    columns: list[str] | None = None,
+    question: str | None = None,
+) -> dict:
+    """Format executed rows into a deterministic structured result. Does not call an LLM."""
+    selected_columns = columns or list(rows[0].keys()) if rows else (columns or [])
+    result = {
+        "question": question,
+        "columns": selected_columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "empty": len(rows) == 0,
+    }
+    return _tool_response(
+        status="success",
+        confidence=1.0,
+        result=result,
+        reasons=["formatted already-executed facts without adding new claims"],
+        warnings=[] if rows else ["No rows were returned."],
+        next_tools=[],
+        **result,
+    )
+
+
+@mcp.tool()
+def execute_verified_erp_query(
+    question: str,
+    session_id: str | None = None,
+    database: str | None = None,
+) -> dict:
+    """Plan, validate, and execute one verified read-only ERP question without an LLM."""
+    resolved_database = _mysql_database(database, session_id)
+    plan = _verified_erp_plan(question, resolved_database)
+    if plan["status"] == "clarification_required":
+        result = {
+            "success": False,
+            "status": "clarification_required",
+            "question": question,
+            "clarification_question": plan["clarification_question"],
+            "options": plan["options"],
+            "resolved_database": resolved_database,
+            "source_type": "mysql",
+        }
+        return _tool_response(
+            status="clarification_required",
+            confidence=0.2,
+            result=result,
+            reasons=["verified planner requires a missing slot before SQL can run"],
+            next_tools=["resolve_entities", "resolve_business_terms"],
+            **_compat_payload(result),
+        )
+    if plan["status"] != "ready" or not plan.get("sql"):
+        result = {
+            "success": False,
+            "status": "blocked",
+            "question": question,
+            "errors": [
+                *plan.get("plan_validation", {}).get("errors", []),
+                *plan.get("validation", {}).get("errors", []),
+            ],
+            "warnings": [
+                *plan.get("plan_validation", {}).get("warnings", []),
+                *plan.get("validation", {}).get("warnings", []),
+            ],
+            "resolved_database": resolved_database,
+            "source_type": "mysql",
+        }
+        return _tool_response(
+            status="blocked",
+            confidence=0.0,
+            result=result,
+            reasons=result["errors"] or ["verified planner did not produce safe SQL"],
+            warnings=result["warnings"],
+            next_tools=["resolve_business_terms", "inspect_verified_modules"],
+            **_compat_payload(result),
+        )
+    dataframe = mysql_adapter.execute_read_query(plan["sql"], resolved_database)
+    result = {
+        "success": True,
+        "status": "executed",
+        "question": question,
+        "sql": plan["sql"].strip().rstrip(";"),
+        "columns": list(dataframe.columns),
+        "rows": dataframe.to_dict(orient="records"),
+        "row_count": len(dataframe),
+        "query_plan": plan["query_plan"],
+        "validation": plan["validation"],
+        "resolved_database": resolved_database,
+        "source_type": "mysql",
+    }
+    return _tool_response(
+        status="executed",
+        confidence=0.98,
+        result=result,
+        reasons=["planned, validated and executed verified read-only ERP SQL"],
+        warnings=plan.get("validation", {}).get("warnings", []),
+        next_tools=["format_result"],
+        **_compat_payload(result),
+    )
 
 
 @mcp.tool()

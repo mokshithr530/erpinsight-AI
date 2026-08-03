@@ -92,7 +92,7 @@ def test_semantic_parser_generic_value_metric_is_preserved():
 
     assert plan["operation"] == "ranking"
     assert "purchase_order" in plan["dimensions"]
-    assert "amount_value" in plan["metrics"]
+    assert "purchase_value" in plan["metrics"]
     assert plan["limit"] == 10
     assert plan["sort_direction"] == "desc"
 
@@ -261,6 +261,81 @@ def test_business_acronyms_are_not_entity_values():
         )
 
 
+def test_manager_wording_between_projects_preserves_clean_entities():
+    plan = semantic_parser.parse(
+        "Between RDSS-VIZAG and RDSS-UGCABLE, which one has more billing?",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert plan["operation"] == "comparison"
+    assert "billing" in plan["metrics"]
+    assert plan["candidate_entity_mentions"] == ["RDSS-VIZAG", "RDSS-UGCABLE"]
+
+
+def test_manager_wording_biggest_pos_by_amount_maps_to_purchase_value():
+    plan = semantic_parser.parse(
+        "Show the biggest five POs by amount.",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert plan["operation"] == "ranking"
+    assert plan["limit"] == 5
+    assert plan["sort_direction"] == "desc"
+    assert "purchase_value" in plan["metrics"]
+    assert "purchase_order" in plan["dimensions"]
+    assert plan["candidate_entity_mentions"] == []
+
+
+def test_recent_day_window_is_date_not_material_entity():
+    plan = semantic_parser.parse(
+        "In the recent 30 day window, which materials were issued most?",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert {"type": "last_days", "value": 30, "days": 30} in plan["date_constraints"]
+    assert "material_issues" in plan["metrics"]
+    assert "material" in plan["dimensions"]
+    assert plan["candidate_entity_mentions"] == []
+
+
+def test_top_materials_used_from_stores_maps_to_issued_quantity():
+    plan = semantic_parser.parse(
+        "Give top materials used from stores.",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert plan["operation"] == "ranking"
+    assert plan["limit"] == 10
+    assert "material_consumption" in plan["metrics"]
+    assert "material" in plan["dimensions"]
+    assert plan["candidate_entity_mentions"] == []
+
+
+def test_po_spend_alias_maps_to_purchase_value():
+    plan = semantic_parser.parse(
+        "Compare PO spend for RDSS-VIZAG versus RDSS-UGCABLE.",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert plan["operation"] == "comparison"
+    assert "purchase_value" in plan["metrics"]
+    assert "project" in plan["dimensions"]
+    assert plan["candidate_entity_mentions"] == ["RDSS-VIZAG", "RDSS-UGCABLE"]
+
+
+def test_cross_module_project_comparison_preserves_project_dimension():
+    plan = semantic_parser.parse(
+        "Compare billing and PO value for RDSS-VIZAG and RDSS-UGCABLE.",
+        allow_llm_fallback=False,
+    ).to_dict()
+
+    assert plan["operation"] == "comparison"
+    assert {"billing", "purchase_value"} <= set(plan["metrics"])
+    assert "project" in plan["dimensions"]
+    assert "purchase_order" not in plan["dimensions"]
+    assert plan["candidate_entity_mentions"] == ["RDSS-VIZAG", "RDSS-UGCABLE"]
+
+
 def test_semantic_parser_strips_leading_preposition_from_project_mentions():
     plan = semantic_parser.parse("what is going on in NH-930 GOWRELLY-VALIGONDA").to_dict()
 
@@ -304,7 +379,7 @@ def test_semantic_parser_keeps_cross_module_project_entity_clean():
 
     assert plan["candidate_entity_mentions"] == ["RDSS-VIZAG"]
     assert "purchase_value" in plan["metrics"]
-    assert "material_consumption" in plan["metrics"]
+    assert "material_issues" in plan["metrics"]
 
 
 def test_semantic_parser_issue_metric_does_not_force_count_grouping():

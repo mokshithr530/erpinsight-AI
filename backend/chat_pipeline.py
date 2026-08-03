@@ -135,6 +135,17 @@ class ChatPipeline:
         if OPTION_CODE_PATTERN.search(normalized):
             return False
         if re.match(r"^(what|which|how|show|list|compare|give|tell)\b", normalized):
+            parsed = semantic_parser.parse(question, allow_llm_fallback=False).to_dict()
+            if (
+                len(normalized.split()) >= 5
+                and (
+                    parsed.get("metrics")
+                    or parsed.get("dimensions")
+                    or parsed.get("candidate_entity_mentions")
+                )
+            ):
+                return True
+        if re.match(r"^(what|which|how|show|list|compare|give|tell)\b", normalized):
             original = " ".join(str(context.get("original_question") or "").lower().split())
             original_terms = {
                 term
@@ -163,6 +174,31 @@ class ChatPipeline:
         if original_terms and len(original_terms & new_terms) >= 1:
             return False
         return bool(re.search(r"\b(show|list|compare|what|which|how|give|tell|count)\b", normalized))
+
+    def _canonicalize_mysql_question(self, question):
+        text = str(question or "").strip()
+        po_compare = re.search(
+            r"^\s*compare\s+(?:po|purchase\s+order)\s+(?:spend|amount|total\s+value|value)\s+for\s+(.+?)\s+(?:versus|vs\.?|and)\s+(.+?)[?.!]*\s*$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if po_compare:
+            return (
+                "Compare purchase order total value by project for "
+                f"project {po_compare.group(1).strip()} and project {po_compare.group(2).strip()}."
+            )
+        if re.search(r"\btop\b.+\bmaterials?\s+(?:used|issued)\s+from\s+stores?\b", text, flags=re.IGNORECASE):
+            return "Show top ten materials issued."
+        replacements = [
+            (r"\bPO\s+spend\b", "purchase order total value"),
+            (r"\bPO\s+amount\b", "purchase order total value"),
+            (r"\bPOs?\s+by\s+amount\b", "purchase orders by total value"),
+            (r"\bbiggest\s+(\w+)\s+POs?\b", r"top \1 purchase orders"),
+            (r"\bmaterials?\s+used\s+from\s+stores?\b", "materials issued from stores"),
+        ]
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text
 
     def _clarification_followup_slots(self, question, context):
         normalized = " ".join(str(question or "").strip().split())
@@ -301,9 +337,10 @@ class ChatPipeline:
         text = str(normalized or "").strip()
         direct = re.fullmatch(r"([A-Za-z])", text)
         compact = re.fullmatch(r"\d+\s*([A-Za-z])", text)
-        if not direct and not compact:
+        prefixed = re.match(r"^([A-Za-z])\s*[.):-]\s+.+", text)
+        if not direct and not compact and not prefixed:
             return None
-        index = ord((direct or compact).group(1).upper()) - ord("A")
+        index = ord((direct or compact or prefixed).group(1).upper()) - ord("A")
         if index < 0:
             return None
         if expected_slot == "metric":
@@ -508,6 +545,8 @@ class ChatPipeline:
         entity_2 = filled.get("entity_2")
         date_range = filled.get("date_range")
         date_text = f" for {date_range}" if date_range else ""
+        if re.search(r"\bproject\b", lower) and re.search(r"\b(detail|details|summary)\b", lower) and entity:
+            return f"Show project details for {entity}."
         if re.search(r"\b(material|store|inventory)\b", lower):
             if not metric:
                 return None
@@ -518,7 +557,7 @@ class ChatPipeline:
                 metric_text = "material returned quantity"
             elif "price" in metric_lower or "rate" in metric_lower:
                 metric_text = "material unit price"
-            elif "stock" in metric_lower:
+            elif "stock" in metric_lower or "inventory" in metric_lower:
                 metric_text = "current stock quantity"
             dimension = filled.get("entity_type") or self._entity_dimension_hint(entity or entity_1 or "")
             if dimension not in {"project", "material", "store", "vendor", "client"}:
@@ -566,7 +605,7 @@ class ChatPipeline:
             if filled.get("entity_type") in {"project", "vendor"}:
                 dimension = filled["entity_type"]
             if entity_1 and entity_2:
-                return f"Compare purchase order {metric_text} by {dimension} for {entity_1} and {entity_2}{date_text}."
+                return f"Compare purchase order {metric_text} by {dimension} for {dimension} {entity_1} and {dimension} {entity_2}{date_text}."
             if entity:
                 return f"Show purchase order {metric_text} by {dimension} for {dimension} {entity}{date_text}."
             if metric:
@@ -861,11 +900,15 @@ class ChatPipeline:
         )
         if not validation.get("valid"):
             return validation
-        schema = (
-            mysql_adapter.inspect_schema(database)
-            if query_plan.catalog_authoritative
-            else None
-        )
+        schema = None
+        if query_plan.catalog_authoritative:
+            try:
+                schema = mysql_adapter.inspect_schema(database)
+            except Exception as error:
+                logger.warning(
+                    "Plan-aware schema inspection unavailable; validating against query-plan context only: %s",
+                    error,
+                )
         plan_validation = query_plan_guard.validate_sql(
             sql,
             query_plan,
@@ -1760,6 +1803,7 @@ LIMIT 1
     def ask_mysql(self, question, database, database_identity):
         token_metrics.start()
         question = self._validate_question(question)
+        question = self._canonicalize_mysql_question(question)
         if self.is_casual_message(question):
             response = self.casual_response(has_database=True)
             token_metrics.log_summary()
@@ -2150,13 +2194,19 @@ LIMIT 1
             )
         erp_sql_context = None
         if semantic_binding.get("authoritative"):
-            erp_sql_context = erp_sql_context_builder.build(
-                schema=mysql_adapter.inspect_schema(database),
-                query_plan=query_plan,
-                semantic_binding=semantic_binding,
-                catalog=catalog,
-                schema_fingerprint=mysql_adapter.schema_fingerprint(database),
-            )
+            try:
+                erp_sql_context = erp_sql_context_builder.build(
+                    schema=mysql_adapter.inspect_schema(database),
+                    query_plan=query_plan,
+                    semantic_binding=semantic_binding,
+                    catalog=catalog,
+                    schema_fingerprint=mysql_adapter.schema_fingerprint(database),
+                )
+            except Exception as error:
+                logger.warning(
+                    "Verified ERP SQL context could not be built; using fallback MySQL path: %s",
+                    error,
+                )
         if erp_sql_context:
             existing_generation_columns = dict(query_plan.generation_columns)
             query_plan.generation_tables = list(
@@ -2167,6 +2217,8 @@ LIMIT 1
                 dict(erp_sql_context.selected_columns),
             )
         authoritative_runtime = bool(erp_sql_context)
+        if not authoritative_runtime and semantic_binding.get("authoritative"):
+            query_plan.catalog_authoritative = False
         schema_prompt = self._mysql_schema_prompt(
             database=database,
             relevant_tables=relevant_tables,

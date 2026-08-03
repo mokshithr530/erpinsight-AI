@@ -139,6 +139,56 @@ def test_metric_letter_uses_metric_options_even_when_entity_options_exist():
     assert "purchase order count" in result["question"].lower()
 
 
+def test_metric_prefixed_letter_label_uses_metric_option():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Compare purchase orders.",
+        "missing_slots": ["metric"],
+        "current_expected_slot": "metric",
+        "metric_options": ["PO total value", "PO count"],
+        "filled_slots": {
+            "entity_1": "RDSS-VIZAG",
+            "entity_2": "RDSS-UGCABLE",
+        },
+    }
+
+    result = pipeline.merge_clarification_followup("A. PO total value", context)
+
+    assert result["handled"] is True
+    assert result["filled_slots"]["metric"] == "PO total value"
+    assert result["question"] == (
+        "Compare purchase order total value by project for project RDSS-VIZAG "
+        "and project RDSS-UGCABLE."
+    )
+
+
+def test_entity_pair_prefixed_letter_label_uses_entity_option():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Compare purchase orders.",
+        "missing_slots": ["entity_pair", "metric"],
+        "current_expected_slot": "entity_pair",
+        "entity_options": [
+            "RDSS-VIZAG and RDSS-UGCABLE",
+            "RDSS-VIZAG and RDSS-NELLORE",
+        ],
+        "metric_options": ["PO total value", "PO count"],
+        "filled_slots": {},
+    }
+
+    result = pipeline.merge_clarification_followup(
+        "A. RDSS-VIZAG and RDSS-UGCABLE",
+        context,
+    )
+
+    assert result["handled"] is True
+    assert result["filled_slots"]["entity_1"] == "RDSS-VIZAG"
+    assert result["filled_slots"]["entity_2"] == "RDSS-UGCABLE"
+    assert "RDSS-VIZAG and RDSS-UGCABLE" in result["question"]
+
+
 def test_material_metric_followup_does_not_become_entity():
     pipeline = ChatPipeline()
     context = {
@@ -172,6 +222,67 @@ def test_material_entity_followup_keeps_metric_separate():
     assert result["handled"] is True
     assert result["filled_slots"]["entity"] == "RDSS-VIZAG"
     assert result["question"] == "Show material issued quantity by project for project RDSS-VIZAG."
+
+
+def test_inventory_metric_followup_maps_to_current_stock():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Current inventory",
+        "missing_slots": ["metric"],
+        "current_expected_slot": "metric",
+        "metric_options": ["Inventory Quantity", "Current stock quantity"],
+        "filled_slots": {},
+    }
+
+    result = pipeline.merge_clarification_followup("A", context)
+
+    assert result["handled"] is True
+    assert result["filled_slots"]["metric"] == "Inventory Quantity"
+    assert result["question"] == "Show current stock quantity."
+
+
+def test_project_details_followup_canonicalizes_to_project_master_query():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Show project details.",
+        "missing_slots": ["entity"],
+        "current_expected_slot": "entity",
+        "filled_slots": {},
+        "entity_options": ["RDSS-VIZAG", "RDSS-UGCABLE"],
+        "expected_entity_types": ["project"],
+    }
+
+    result = pipeline.merge_clarification_followup("RDSS-VIZAG", context)
+
+    assert result["handled"] is True
+    assert result["filled_slots"]["entity"] == "RDSS-VIZAG"
+    assert result["question"] == "Show project details for RDSS-VIZAG."
+
+
+def test_po_project_comparison_followup_repeats_dimension_for_both_entities():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Compare purchase orders.",
+        "missing_slots": ["metric"],
+        "current_expected_slot": "metric",
+        "filled_slots": {
+            "entity_1": "RDSS-VIZAG",
+            "entity_2": "RDSS-UGCABLE",
+        },
+        "metric_options": ["PO total value", "PO count"],
+    }
+
+    result = pipeline.merge_clarification_followup("A", context)
+
+    assert result["handled"] is True
+    assert result["filled_slots"]["metric"] == "PO total value"
+    assert result["question"] == (
+        "Compare purchase order total value by project for project RDSS-VIZAG "
+        "and project RDSS-UGCABLE."
+    )
 
 
 def test_vendor_comparison_metric_followup_preserves_vendor_context():
@@ -253,6 +364,38 @@ def test_unrelated_question_is_detected():
 
     assert result["handled"] is False
     assert result["unrelated"] is True
+
+
+def test_full_new_question_discards_pending_clarification_even_with_overlap():
+    pipeline = ChatPipeline()
+    context = {
+        "active": True,
+        "original_question": "Compare PO spend for RDSS-VIZAG versus RDSS-UGCABLE.",
+        "missing_slots": ["entity_pair", "metric"],
+        "filled_slots": {},
+    }
+
+    result = pipeline.merge_clarification_followup(
+        "Compare billing and PO value for RDSS-VIZAG and RDSS-UGCABLE.",
+        context,
+    )
+
+    assert result["handled"] is False
+    assert result["unrelated"] is True
+
+
+def test_mysql_question_canonicalizes_manager_po_synonyms():
+    pipeline = ChatPipeline()
+
+    assert pipeline._canonicalize_mysql_question(
+        "Compare PO spend for RDSS-VIZAG versus RDSS-UGCABLE."
+    ) == (
+        "Compare purchase order total value by project for project RDSS-VIZAG "
+        "and project RDSS-UGCABLE."
+    )
+    assert pipeline._canonicalize_mysql_question(
+        "Give top materials used from stores."
+    ) == "Show top ten materials issued."
 
 
 def test_expired_context_returns_none(tmp_path, monkeypatch):
@@ -369,6 +512,77 @@ def test_route_preserves_filled_slots_across_multiple_clarifications(tmp_path, m
 
     assert second.status_code == 200
     assert seen[-1] == "Show purchase order total value by project for project RDSS-VIZAG."
+    assert get_clarification_context("session-a") is None
+
+
+def test_route_letter_options_complete_multi_turn_clarification(tmp_path, monkeypatch):
+    monkeypatch.setattr(context_module, "CLARIFICATION_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "get_session_source", lambda session_id: {
+        "source_type": "mysql",
+        "database": "erp",
+        "schema_fingerprint": "fp",
+    })
+    seen = []
+
+    def fake_ask_mysql(question, database, identity):
+        seen.append(question)
+        if len(seen) == 1:
+            return {
+                "success": True,
+                "answer": "**Should I compare PO total value or PO count for purchase orders?**\n\n**A.** PO total value\n**B.** PO count",
+                "sql": None,
+                "result": None,
+                "clarification_context": {
+                    "active": True,
+                    "original_question": question,
+                    "missing_slots": ["metric"],
+                    "current_expected_slot": "metric",
+                    "metric_options": ["PO total value", "PO count"],
+                    "filled_slots": {},
+                },
+                "confidence": {"confidence_score": 40, "confidence_level": "low", "confidence_reasons": [], "limitations": []},
+            }
+        return {
+            "success": True,
+            "answer": "answered",
+            "sql": "SELECT 1",
+            "result": {"records": [{"x": 1}]},
+            "confidence": {"confidence_score": 90, "confidence_level": "high", "confidence_reasons": [], "limitations": []},
+        }
+
+    monkeypatch.setattr(main_module.chat_pipeline, "ask_mysql", fake_ask_mysql)
+    save_clarification_context(
+        "session-a",
+        {
+            "active": True,
+            "original_question": "Compare purchase orders.",
+            "missing_slots": ["entity_pair", "metric"],
+            "current_expected_slot": "entity_pair",
+            "entity_options": [
+                "RDSS-VIZAG and RDSS-UGCABLE",
+                "RDSS-VIZAG and RDSS-NELLORE",
+            ],
+            "metric_options": ["PO total value", "PO count"],
+            "filled_slots": {},
+            "turns_remaining": 3,
+        },
+    )
+
+    client = TestClient(main_module.app)
+    first = client.post("/chat", json={"session_id": "session-a", "question": "A"})
+    assert first.status_code == 200
+
+    stored = get_clarification_context("session-a")
+    assert stored["filled_slots"]["entity_1"] == "RDSS-VIZAG"
+    assert stored["filled_slots"]["entity_2"] == "RDSS-UGCABLE"
+    assert stored["current_expected_slot"] == "metric"
+
+    second = client.post("/chat", json={"session_id": "session-a", "question": "A"})
+    assert second.status_code == 200
+    assert seen[-1] == (
+        "Compare purchase order total value by project for project RDSS-VIZAG "
+        "and project RDSS-UGCABLE."
+    )
     assert get_clarification_context("session-a") is None
 
 

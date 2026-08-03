@@ -26,6 +26,9 @@ A printable 3-page overview is available at
 It explains the POC architecture, how questions work, and what the assistant can
 answer.
 
+A printable supported-question list is available at
+[docs/ERP_AI_Assistant_Question_List.html](docs/ERP_AI_Assistant_Question_List.html).
+
 ## Verified Demo Coverage
 
 The strongest POC modules are:
@@ -231,14 +234,12 @@ headcount only or true performance.
 
 ## MCP Server
 
-MCP tools can use an explicit database path, a session id, or the fallback path
-from `backend/.env`:
+The MCP server is a tool interface for external agent hosts such as Claude
+Desktop, Claude Code, or any MCP-compatible LLM host. The normal browser chat
+still uses `POST /chat`; MCP is for agents that need to inspect, plan, validate,
+and execute verified ERP queries step by step.
 
-```env
-MCP_DATABASE_PATH=C:\absolute\path\to\database.sqlite
-```
-
-Start the stdio MCP server with:
+Start the stdio MCP server from the project root:
 
 ```powershell
 python backend\mcp_server.py
@@ -246,7 +247,51 @@ python backend\mcp_server.py
 
 Configure your MCP host to run that command from this project directory. MCP is
 independent of the LLM provider, so Claude, OpenAI, Gemini, OpenRouter, or
-another MCP host can use the same tools.
+another MCP host can use the same verified tools.
+
+MCP can resolve a database from:
+
+1. an explicit `database_path`
+2. a browser `session_id`
+3. the fallback `MCP_DATABASE_PATH` in `backend/.env`
+
+```env
+MCP_DATABASE_PATH=C:\absolute\path\to\database.sqlite
+```
+
+For the verified ERP path, MCP exposes small JSON-only tools that can be chained
+by an agent:
+
+```text
+inspect_verified_modules
+  -> detect_required_modules
+  -> resolve_business_terms / resolve_entities / resolve_dates
+  -> get_verified_metric / get_verified_dimension / get_verified_join_path
+  -> plan_verified_erp_query
+  -> compile_verified_sql
+  -> validate_sql / estimate_query_cost
+  -> execute_verified_sql
+  -> format_result
+```
+
+There is also a convenience tool, `execute_verified_erp_query`, for one-shot
+demo checks, but the composable tools are better for careful agent reasoning.
+
+MCP safety rules:
+
+- Tools return structured JSON, not natural-language answers.
+- Tools include `status`, `confidence`, warnings, reasons, and recommended next
+  tools.
+- Ambiguous requests return `clarification_required` with options instead of
+  running SQL.
+- Only read-only `SELECT` / `WITH` queries can execute.
+- SQL is validated against the verified ERP catalog, approved relationships,
+  canonical DDL context, and plan-aware safety checks before execution.
+- MCP never exposes unrestricted raw SQL execution.
+
+MCP also keeps the lower-level database tools for inspection and safe querying:
+`inspect_schema`, `analyze_question`, `validate_sql`, `dry_run_query`, and
+`execute_read_query`.
 
 ## Redis Cache
 

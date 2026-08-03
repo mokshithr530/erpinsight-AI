@@ -9,9 +9,9 @@ from verified_sql_compiler import VERIFIED_SQL_COMPILER_VERSION
 from config import LLM_POLISH_VERIFIED_ANSWERS
 
 
-CACHE_IDENTITY_VERSION = "answer-cache:v81"
+CACHE_IDENTITY_VERSION = "answer-cache:v82"
 CATALOG_VERSION = "business-catalog:v6+verified-erp:v13"
-MAPPING_VERSION = "erp-semantic-binder:v19+entity-v16-verified-first+parser-v15+clarification-v2+cross-v4"
+MAPPING_VERSION = "erp-semantic-binder:v19+entity-v16-verified-first+parser-v16+clarification-v2+cross-v4"
 PROMPT_TEMPLATE_VERSION = "prompt-template:v19+erp-inventory-context:v1"
 RESULT_SHAPING_VERSION = "result-shaping:v38+po-empty-label-fallback:v1"
 

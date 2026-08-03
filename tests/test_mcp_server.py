@@ -1,5 +1,6 @@
 import sqlite3
 
+import pandas as pd
 import pytest
 
 import active_database
@@ -216,3 +217,225 @@ def test_mcp_resolve_entities_handles_multiple_sqlite_mentions(tmp_path):
     assert "APDRP" in mentions
     assert result["dates"][0]["start"] == "2025-01-01"
     assert result["needs_clarification"] is False
+
+
+def test_mcp_verified_catalog_tools_return_mysql_facts(monkeypatch):
+    catalog = {
+        "catalog_version": "verified:v1",
+        "schema_fingerprint": "fp",
+        "verified_catalog": True,
+        "business_concepts": [
+            {"concept_id": "billing", "applicable_module": "billing", "aliases": ["revenue booked"]},
+        ],
+        "metrics": [
+            {
+                "metric": "purchase_value",
+                "applicable_module": "purchase_orders",
+                "table": "po_form",
+                "column": "total_value",
+                "aliases": ["purchase value", "po value"],
+            },
+        ],
+        "dimensions": [],
+        "date_fields": [],
+        "status_fields": [],
+        "business_definitions": [],
+        "unresolved_definitions": [],
+        "important_tables": ["po_form"],
+        "unsupported_kpis": ["profit"],
+        "join_paths": [
+            {
+                "mapping_id": "project_po",
+                "applicable_module": "purchase_orders",
+                "source_table": "po_form",
+                "target_table": "project_mst",
+                "duplicate_risk": "low",
+            }
+        ],
+        "relationship_evidence": [],
+    }
+    monkeypatch.setattr(mcp_server.mysql_adapter, "business_catalog", lambda database: catalog)
+
+    overview = mcp_server.inspect_verified_erp_catalog(
+        module="purchase_orders",
+        database="erp",
+    )
+    metric = mcp_server.get_verified_metric(
+        "purchase value",
+        module="purchase_orders",
+        database="erp",
+    )
+    join_path = mcp_server.get_verified_join_path(
+        "project",
+        "purchase_orders",
+        module="purchase_orders",
+        database="erp",
+    )
+
+    assert overview["authoritative"] is True
+    assert metric["matches"][0]["column"] == "total_value"
+    assert join_path["approved_paths"][0]["mapping_id"] == "project_po"
+    assert overview["result"]["authoritative"] is True
+    assert overview["next_recommended_tools"]
+    assert metric["confidence"] > 0.9
+    assert join_path["reasoning"]["reasons"]
+
+
+def test_mcp_composable_verified_tools_return_structured_contract(monkeypatch):
+    catalog = {
+        "catalog_version": "verified:v1",
+        "schema_fingerprint": "fp",
+        "verified_catalog": True,
+        "entities": {
+            "project": {
+                "table": "project_mst",
+                "display_columns": ["project_name"],
+                "aliases": ["site"],
+            }
+        },
+        "aliases": {"project": ["site"]},
+        "business_concepts": [
+            {"concept_id": "billing", "applicable_module": "billing", "aliases": ["revenue"]},
+        ],
+        "metrics": [
+            {
+                "metric": "billing_value",
+                "applicable_module": "billing",
+                "table": "client_bill_raising",
+                "column": "gross_bill_value",
+                "aliases": ["billing"],
+            },
+        ],
+        "dimensions": [
+            {
+                "dimension": "project",
+                "applicable_module": "billing",
+                "table": "project_mst",
+                "column": "project_name",
+                "aliases": ["site"],
+            },
+        ],
+        "date_fields": [],
+        "status_fields": [],
+        "business_definitions": [],
+        "unresolved_definitions": [],
+        "important_tables": ["client_bill_raising", "project_mst"],
+        "unsupported_kpis": ["profit"],
+        "join_paths": [
+            {
+                "mapping_id": "project_billing",
+                "applicable_module": "billing",
+                "source_table": "client_bill_raising",
+                "target_table": "project_mst",
+                "duplicate_risk": "low",
+            }
+        ],
+        "relationship_evidence": [],
+    }
+    monkeypatch.setattr(mcp_server.mysql_adapter, "business_catalog", lambda database: catalog)
+
+    modules = mcp_server.inspect_verified_modules(database="erp")
+    metrics = mcp_server.inspect_verified_metrics("billing", database="erp")
+    entities = mcp_server.inspect_verified_entities("project", database="erp")
+    dates = mcp_server.resolve_dates("Show billing for 2025")
+    business_terms = mcp_server.resolve_business_terms("Show billing by project", database="erp")
+
+    for result in [modules, metrics, entities, dates, business_terms]:
+        assert set(["status", "confidence", "result", "reasoning", "warnings", "next_recommended_tools"]).issubset(result)
+        assert isinstance(result["result"], dict)
+
+    assert modules["result"]["modules"]
+    assert metrics["result"]["metrics"][0]["column"] == "gross_bill_value"
+    assert "project" in entities["result"]["entities"]
+    assert dates["result"]["date_constraints"][0]["value"] == 2025
+
+
+def test_mcp_compile_estimate_execute_format_chain(monkeypatch):
+    sql = "SELECT project_name, SUM(total_value) AS po_value FROM po_form GROUP BY project_name LIMIT 10"
+    plan = {
+        "original_question": "Show PO value by project",
+        "operation": "aggregation",
+        "intent_category": "data_query",
+        "metrics": ["purchase_value"],
+        "dimensions": ["project"],
+        "selected_tables": ["po_form"],
+        "selected_columns": {"po_form": ["project_name", "total_value"]},
+        "catalog_authoritative": True,
+    }
+    monkeypatch.setattr(mcp_server.verified_sql_compiler, "compile", lambda query_plan: sql)
+    monkeypatch.setattr(
+        mcp_server.mysql_adapter,
+        "validate_sql",
+        lambda query, database: {"valid": True, "errors": [], "warnings": []},
+    )
+    monkeypatch.setattr(
+        mcp_server.mysql_adapter,
+        "execute_read_query",
+        lambda query, database: pd.DataFrame([
+            {"project_name": "RDSS-VIZAG", "po_value": 100}
+        ]),
+    )
+
+    compiled = mcp_server.compile_verified_sql(plan, database="erp")
+    estimate = mcp_server.estimate_query_cost(compiled["result"]["sql"], database="erp")
+    executed = mcp_server.execute_verified_sql(compiled["result"]["sql"], database="erp")
+    formatted = mcp_server.format_result(executed["result"]["rows"], question=plan["original_question"])
+
+    assert compiled["status"] == "success"
+    assert compiled["result"]["validation"]["valid"] is True
+    assert estimate["result"]["cost"]["estimated_cost_level"] in {"low", "medium", "high"}
+    assert estimate["result"]["cost"]["has_limit"] is True
+    assert executed["status"] == "success"
+    assert executed["result"]["row_count"] == 1
+    assert formatted["result"]["rows"][0]["project_name"] == "RDSS-VIZAG"
+
+
+def test_mcp_execute_verified_erp_query_stops_for_clarification(monkeypatch):
+    monkeypatch.setattr(
+        mcp_server,
+        "_verified_erp_plan",
+        lambda question, database: {
+            "status": "clarification_required",
+            "clarification_question": "Which two projects?",
+            "options": ["RDSS-VIZAG and RDSS-UGCABLE"],
+        },
+    )
+
+    result = mcp_server.execute_verified_erp_query(
+        "Compare purchase orders.",
+        database="erp",
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "clarification_required"
+    assert result["options"] == ["RDSS-VIZAG and RDSS-UGCABLE"]
+
+
+def test_mcp_execute_verified_erp_query_uses_validated_plan(monkeypatch):
+    monkeypatch.setattr(
+        mcp_server,
+        "_verified_erp_plan",
+        lambda question, database: {
+            "status": "ready",
+            "sql": "SELECT 'RDSS-VIZAG' AS project_name, 10 AS purchase_value",
+            "query_plan": {"catalog_authoritative": True},
+            "validation": {"valid": True, "errors": [], "warnings": []},
+        },
+    )
+    monkeypatch.setattr(
+        mcp_server.mysql_adapter,
+        "execute_read_query",
+        lambda sql, database: pd.DataFrame([
+            {"project_name": "RDSS-VIZAG", "purchase_value": 10}
+        ]),
+    )
+
+    result = mcp_server.execute_verified_erp_query(
+        "Compare purchase orders.",
+        database="erp",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "executed"
+    assert result["row_count"] == 1
+    assert result["rows"][0]["project_name"] == "RDSS-VIZAG"

@@ -41,12 +41,12 @@ export default function ChatMessages({
             <div className="flex flex-wrap gap-2">
               {clarificationOptions.map((option) => (
                 <button
-                  key={option}
+                  key={option.value}
                   type="button"
-                  onClick={() => onSend(option)}
+                  onClick={() => onSend(option.value)}
                   className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-white"
                 >
-                  {option}
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -177,16 +177,40 @@ export default function ChatMessages({
     void navigator.clipboard?.writeText(text);
   }
 
-  function extractClarificationOptions(content: string): string[] {
-    const options = content
-      .split("\n")
-      .map((line) => line.trim())
-      .map((line) => line.match(/^\d+\.\s+(.+)$/)?.[1]?.trim())
-      .filter((value): value is string => Boolean(value))
-      .filter((value) => value.length <= 80)
-      .filter((value) => !value.includes("`"));
+  function extractClarificationOptions(content: string): Array<{ label: string; value: string }> {
+    const seen = new Set<string>();
+    const options: Array<{ label: string; value: string }> = [];
 
-    return Array.from(new Set(options)).slice(0, 8);
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.trim();
+      let label: string | null = null;
+      let value: string | null = null;
+
+      const letterMatch = line.match(/^\*\*([A-Z])\.\*\*\s+(.+)$/);
+      if (letterMatch) {
+        value = letterMatch[1];
+        label = `${letterMatch[1]}. ${letterMatch[2].replace(/\*\*/g, "").trim()}`;
+      }
+
+      const boldLetterMatch = line.match(/^\*\*([A-Z])\.\s+(.+?)\*\*$/);
+      if (!label && boldLetterMatch) {
+        value = boldLetterMatch[1];
+        label = `${boldLetterMatch[1]}. ${boldLetterMatch[2].replace(/\*\*/g, "").trim()}`;
+      }
+
+      const numericMatch = line.match(/^(\d+)\.\s+(.+)$/);
+      if (!label && numericMatch) {
+        value = numericMatch[2].trim();
+        label = `${numericMatch[1]}. ${numericMatch[2].trim()}`;
+      }
+
+      if (!label || !value || label.length > 100 || label.includes("`")) continue;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      options.push({ label, value });
+    }
+
+    return options.slice(0, 8);
   }
 
   function renderConfidence(confidence: NonNullable<Message["response"]>["confidence"]) {

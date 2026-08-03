@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ERP AI Assistant - Question List</title>
+  <style>
+    @page { size: A4; margin: 13mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #172033;
+      background: #ffffff;
+      line-height: 1.32;
+    }
+    .page {
+      min-height: 270mm;
+      page-break-after: always;
+      position: relative;
+      padding-bottom: 12mm;
+    }
+    .page:last-child { page-break-after: auto; }
+    h1 {
+      margin: 0 0 8px;
+      color: #0f172a;
+      font-size: 28px;
+      letter-spacing: 0;
+      line-height: 1.1;
+    }
+    h2 {
+      margin: 16px 0 8px;
+      font-size: 16px;
+      color: #0f172a;
+      border-bottom: 1px solid #d8e0ea;
+      padding-bottom: 5px;
+    }
+    h3 {
+      margin: 10px 0 5px;
+      font-size: 12px;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    p { margin: 0 0 8px; font-size: 11.5px; color: #334155; }
+    ul { margin: 5px 0 9px 18px; padding: 0; }
+    li { margin: 2px 0; font-size: 10.8px; }
+    .eyebrow {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.7px;
+      margin-bottom: 7px;
+    }
+    .hero {
+      background: #f8fafc;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .box {
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      margin-bottom: 10px;
+    }
+    .module {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 5px;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 9.8px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      margin: 1px 3px 6px 0;
+      color: #475569;
+    }
+    .footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 6px;
+      font-size: 9.5px;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="eyebrow">ERP AI Assistant POC</div>
+    <h1>Questions The Assistant Can Answer</h1>
+    <div class="hero">
+      <p>This list is for the current verified ERP POC. The strongest answers are for Projects, Billing, Purchase Orders, Vendors, Store / Material Movement, Materials, and basic Inventory.</p>
+      <p>For ambiguous questions, the assistant should ask a short clarification instead of guessing the wrong project, vendor, metric, date range, or business formula.</p>
+    </div>
+
+    <h2>Projects</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">Direct Project Questions</div>
+        <span class="tag">Project Master</span><span class="tag">Details</span><span class="tag">Ranking</span>
+        <ul>
+          <li>What projects are currently running?</li>
+          <li>List all projects.</li>
+          <li>Show me the details of RDSS-VIZAG.</li>
+          <li>Show project details for RDSS-UGCABLE.</li>
+          <li>Show the top five projects by project value.</li>
+          <li>Which project has the highest project value?</li>
+          <li>Which projects are in Telangana?</li>
+          <li>Show project name, client, value, start date, and end date.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">Project Clarification Questions</div>
+        <span class="tag">Clarification</span><span class="tag">Entity Selection</span>
+        <ul>
+          <li>Show project details.</li>
+          <li>Compare these two projects.</li>
+          <li>Show active projects.</li>
+          <li>Show projects in a state.</li>
+          <li>Give me a project summary.</li>
+          <li>Show me details for RDSS.</li>
+          <li>Which project should I focus on?</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Billing</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">Billing Totals And Comparisons</div>
+        <span class="tag">Billing</span><span class="tag">Project Comparison</span>
+        <ul>
+          <li>What is the total billing across all projects?</li>
+          <li>Show billing for RDSS-VIZAG.</li>
+          <li>Compare billing of RDSS-VIZAG and RDSS-UGCABLE.</li>
+          <li>Which project has the highest billing?</li>
+          <li>Show billing for this year.</li>
+          <li>Show billing by project.</li>
+          <li>Show top projects by billing value.</li>
+          <li>Show latest billing records.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">Billing Clarification Questions</div>
+        <span class="tag">Metric Clarification</span><span class="tag">Date Clarification</span>
+        <ul>
+          <li>Show billing.</li>
+          <li>Show latest bills.</li>
+          <li>Show billing for last year.</li>
+          <li>Compare billing.</li>
+          <li>Show billing for RDSS.</li>
+          <li>What is our revenue?</li>
+          <li>Show project-wise billing.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer"><span>ERP AI Assistant Question List</span><span>Page 1 of 3</span></div>
+  </section>
+
+  <section class="page">
+    <div class="eyebrow">Verified Modules</div>
+    <h1>Purchase Orders And Vendors</h1>
+
+    <h2>Purchase Orders</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">PO Value, Count, And Rankings</div>
+        <span class="tag">PO Value</span><span class="tag">PO Count</span><span class="tag">Top N</span>
+        <ul>
+          <li>What is the total purchase order value across all projects?</li>
+          <li>Show me the top five purchase orders by value.</li>
+          <li>Which project has the highest purchase order value?</li>
+          <li>Compare purchase order value between RDSS-VIZAG and RDSS-UGCABLE.</li>
+          <li>Show purchase orders for RDSS-VIZAG.</li>
+          <li>Show PO value by project.</li>
+          <li>Show PO count by project.</li>
+          <li>Show average purchase order value.</li>
+          <li>Show minimum and maximum purchase order value.</li>
+          <li>Show purchase orders created this year.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">PO Clarification Questions</div>
+        <span class="tag">Metric Selection</span><span class="tag">Project/Vendor</span>
+        <ul>
+          <li>Compare purchase orders.</li>
+          <li>Show purchase orders for ABC.</li>
+          <li>Show biggest purchase order.</li>
+          <li>Show pending purchase orders.</li>
+          <li>Show purchase orders from March.</li>
+          <li>Show top purchase orders.</li>
+          <li>Compare PO for two projects.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Vendors</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">Vendor Lookup And Spend</div>
+        <span class="tag">Vendors</span><span class="tag">Procurement</span><span class="tag">Comparison</span>
+        <ul>
+          <li>Name all the vendors.</li>
+          <li>List vendors.</li>
+          <li>Show vendor details for POLYCAB INDIA LIMITED.</li>
+          <li>Which vendors have purchase orders?</li>
+          <li>Which vendors are we spending the most on?</li>
+          <li>Show vendor-wise PO value.</li>
+          <li>Show vendor-wise PO count.</li>
+          <li>Compare POLYCAB INDIA LIMITED and KEI Industries by PO value.</li>
+          <li>Show top vendors by procurement value.</li>
+          <li>Show bottom vendors by procurement value.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">Vendor Clarification Questions</div>
+        <span class="tag">Vendor Identity</span><span class="tag">Metric Meaning</span>
+        <ul>
+          <li>Show vendor details.</li>
+          <li>Compare vendors.</li>
+          <li>Show top vendors.</li>
+          <li>Show vendor history.</li>
+          <li>Show vendor transactions for this year.</li>
+          <li>Show vendors for a project.</li>
+          <li>Show vendors for a material.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Useful PO + Vendor Questions</h2>
+    <div class="box">
+      <ul>
+        <li>Which vendor has the highest purchase order value?</li>
+        <li>Show top 10 vendors by purchase order value.</li>
+        <li>Compare PO value for POLYCAB INDIA LIMITED and STEEL AUTHORITY OF INDIA LIMITED.</li>
+        <li>Show vendor-wise purchase order value for this year.</li>
+        <li>Show vendors supplying RDSS-VIZAG, if verified relationship data is available.</li>
+      </ul>
+    </div>
+
+    <div class="footer"><span>ERP AI Assistant Question List</span><span>Page 2 of 3</span></div>
+  </section>
+
+  <section class="page">
+    <div class="eyebrow">Verified Modules</div>
+    <h1>Materials, Store Movement, Inventory, And Cross-Module</h1>
+
+    <h2>Store / Material Movement</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">Material Issued And Movement</div>
+        <span class="tag">Materials</span><span class="tag">Store</span><span class="tag">Last 30 Days</span>
+        <ul>
+          <li>Show material issued during the last 30 days.</li>
+          <li>How much material has been issued for RDSS-VIZAG?</li>
+          <li>Show top materials issued for RDSS-VIZAG.</li>
+          <li>For any project, show last 30 days material used.</li>
+          <li>Show material movement for RDSS-VIZAG.</li>
+          <li>Show material issue quantity by project.</li>
+          <li>Which material had the highest issued quantity?</li>
+          <li>Name any 10 materials.</li>
+          <li>How many materials are there?</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">Movement Clarification Questions</div>
+        <span class="tag">Date</span><span class="tag">Project</span><span class="tag">Quantity/Value</span>
+        <ul>
+          <li>Show material movement.</li>
+          <li>Show material issued for ABC.</li>
+          <li>Compare material usage.</li>
+          <li>Show today's issues.</li>
+          <li>Show store transactions.</li>
+          <li>Show materials returned.</li>
+          <li>Show material usage for one site.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Inventory</h2>
+    <div class="grid">
+      <div class="box">
+        <div class="module">Basic Inventory Questions</div>
+        <span class="tag">Inventory</span><span class="tag">Stock</span>
+        <ul>
+          <li>Show me the current inventory.</li>
+          <li>Show current stock by material.</li>
+          <li>Show available material.</li>
+          <li>Show inventory for a material.</li>
+          <li>Which materials have stock available?</li>
+          <li>Show top inventory items by quantity.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <div class="module">Inventory Questions Needing Definition</div>
+        <span class="tag">Clarification</span><span class="tag">Business Rule Needed</span>
+        <ul>
+          <li>Which materials are running low on stock?</li>
+          <li>Show stock shortage.</li>
+          <li>What is the stock value?</li>
+          <li>Which inventory items are risky?</li>
+          <li>Show dead stock.</li>
+          <li>Show reorder recommendations.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Cross-Module Questions</h2>
+    <div class="box">
+      <ul>
+        <li>Compare RDSS-VIZAG and RDSS-UGCABLE by total billing and PO value.</li>
+        <li>Compare RDSS-VIZAG and RDSS-UGCABLE by billing, PO value, and material issued quantity.</li>
+        <li>For RDSS-VIZAG, show billing and purchase order value.</li>
+        <li>Which project is higher by billing and which is higher by PO value?</li>
+        <li>Show a project summary with project value, billing, PO value, and material issued.</li>
+      </ul>
+    </div>
+
+    <h2>Questions It Should Not Guess</h2>
+    <div class="box">
+      <ul>
+        <li>What is the company profit?</li>
+        <li>What is the project loss?</li>
+        <li>Which project is performing best?</li>
+        <li>What is the risk score?</li>
+        <li>Which vendor is most reliable?</li>
+        <li>Which material should we buy next?</li>
+      </ul>
+      <p>These need verified formulas, thresholds, or business definitions. The assistant should ask for clarification or say the current ERP catalog does not safely support the KPI yet.</p>
+    </div>
+
+    <div class="footer"><span>ERP AI Assistant Question List</span><span>Page 3 of 3</span></div>
+  </section>
+</body>
+</html>
