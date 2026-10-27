@@ -25,6 +25,8 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run Pytest test suite
+        env:
+          PYTHONPATH: backend
         run: pytest -v
 
   frontend-build:

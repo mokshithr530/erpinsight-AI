@@ -1220,12 +1220,17 @@ class ChatPipeline:
         reply_parts = []
 
         if semantic_plan.get("date_constraints"):
-            lines.extend([
-                f"**{section_number}. {self._clarification_phrase(question, 'date_title', [
+            date_title = self._clarification_phrase(
+                question,
+                'date_title',
+                [
                     'Which date range should I use?',
                     'Which time period should this report cover?',
                     'What date window should I apply?',
-                ])}**",
+                ]
+            )
+            lines.extend([
+                f"**{section_number}. {date_title}**",
                 "**A.** Latest 30 days available in the database",
                 "**B.** Last 30 calendar days from today",
                 "**C.** I will type a custom date range",
@@ -1234,12 +1239,17 @@ class ChatPipeline:
             reply_parts.append(f"{section_number}A")
             section_number += 1
         elif any(word in question_lower for word in ["last", "recent", "date", "month", "year", "quarter"]):
-            lines.extend([
-                f"**{section_number}. {self._clarification_phrase(question, 'date_title', [
+            date_title = self._clarification_phrase(
+                question,
+                'date_title',
+                [
                     'Which date range should I use?',
                     'Which time period should this report cover?',
                     'What date window should I apply?',
-                ])}**",
+                ]
+            )
+            lines.extend([
+                f"**{section_number}. {date_title}**",
                 "**A.** The date range mentioned in your question",
                 "**B.** Latest available transaction window in the database",
                 "**C.** I will type a custom from-date and to-date",
@@ -1266,22 +1276,32 @@ class ChatPipeline:
         project_options = self._rotate_clarification_options(project_options, question, "project")
         if project_options:
             if "compare" in question_lower and len(project_options) >= 2:
-                lines.append(f"**{section_number}. {self._clarification_phrase(question, 'compare_project_title', [
-                    'Which projects should I compare?',
-                    'Which two projects should I put side by side?',
-                    'What project pair should I use for the comparison?',
-                ])}**")
+                compare_title = self._clarification_phrase(
+                    question,
+                    'compare_project_title',
+                    [
+                        'Which projects should I compare?',
+                        'Which two projects should I put side by side?',
+                        'What project pair should I use for the comparison?',
+                    ]
+                )
+                lines.append(f"**{section_number}. {compare_title}**")
                 lines.append("**A.** Auto-pick the top 2 projects/sites based on the selected metric")
                 lines.append(f"**B.** Compare **{project_options[0]} vs {project_options[1]}**")
                 if len(project_options) >= 3:
                     lines.append(f"**C.** Compare **{project_options[0]} vs {project_options[2]}**")
                 lines.append("**D.** I will type the project/site names")
             else:
-                lines.append(f"**{section_number}. {self._clarification_phrase(question, 'project_title', [
-                    'Which project or site should I use?',
-                    'Which project/site should I focus on?',
-                    'Should I use one project, or should I auto-pick the busiest one?',
-                ])}**")
+                project_title = self._clarification_phrase(
+                    question,
+                    'project_title',
+                    [
+                        'Which project or site should I use?',
+                        'Which project/site should I focus on?',
+                        'Should I use one project, or should I auto-pick the busiest one?',
+                    ]
+                )
+                lines.append(f"**{section_number}. {project_title}**")
                 lines.append("**A.** Auto-pick the top project/site based on the selected metric")
                 for index, option in enumerate(project_options[:5], start=2):
                     lines.append(f"**{chr(64 + index)}.** {option}")
@@ -1330,12 +1350,17 @@ class ChatPipeline:
             ])
 
         if reply_parts:
-            lines.extend([
-                f"**{self._clarification_phrase(question, 'reply_title', [
+            reply_title = self._clarification_phrase(
+                question,
+                'reply_title',
+                [
                     'Reply with just the option combo, like:',
                     'You can answer using only the option codes, like:',
                     'To continue, send the option codes like:',
-                ])}**",
+                ]
+            )
+            lines.extend([
+                f"**{reply_title}**",
                 "",
                 f"`{' '.join(reply_parts)}`",
                 "",
